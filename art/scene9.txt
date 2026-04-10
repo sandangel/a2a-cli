@@ -1,0 +1,8 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 🧠 JSON output for AI tools
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ --json gives normalized JSON.
+ .text is always the answer.
+ Pipe to jq for processing.
+

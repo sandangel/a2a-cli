@@ -1,0 +1,12 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 🤖 WHAT IS AGC?
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ A CLI to talk to any A2A protocol agent.
+
+ Perfect for:
+
+  🤖 AI coding tools (Claude Code, Copilot)
+  📜 Shell scripts & automation
+  ⚡ Multi-team agent integration
+  🔬 Agent development & testing

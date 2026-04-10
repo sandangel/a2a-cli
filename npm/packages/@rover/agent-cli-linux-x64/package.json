@@ -1,0 +1,15 @@
+{
+  "name": "@rover/agent-cli-linux-x64",
+  "version": "0.1.0",
+  "description": "A2A CLI binary for linux/x64",
+  "license": "Apache-2.0",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "main": "bin/a2a",
+  "files": [
+    "bin/"
+  ],
+  "bin": {
+    "a2a": "./bin/a2a"
+  }
+}

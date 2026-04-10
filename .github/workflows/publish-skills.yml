@@ -1,0 +1,96 @@
+name: Publish Skills
+
+# Publishes the skills/ directory as an npm package to the Artifactory registry
+# whenever skills change on main, on a schedule, or manually.
+#
+# Required secrets:
+#   ARTIFACTORY_URL   — e.g. https://company.jfrog.io/artifactory/api/npm/npm-local
+#   ARTIFACTORY_TOKEN — npm auth token (Artifactory identity token or API key)
+#
+# Required variables (repo or org level):
+#   SKILLS_PKG_NAME   — npm package name, e.g. @rover/skills  (default below)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - ".github/workflows/publish-skills.yml"
+  schedule:
+    - cron: "0 2 * * *" # Nightly — ensures registry stays in sync
+  workflow_dispatch:
+
+concurrency:
+  group: publish-skills
+  cancel-in-progress: false
+
+env:
+  SKILLS_PKG_NAME: ${{ vars.SKILLS_PKG_NAME || '@rover/skills' }}
+
+jobs:
+  publish:
+    name: Pack and publish skills to Artifactory
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify skills exist
+        run: |
+          if [ ! -f skills/INDEX.md ]; then
+            echo "::error::skills/INDEX.md not found — run 'rover generate-skills' first"
+            exit 1
+          fi
+          echo "Skills count: $(find skills -name 'SKILL.md' | wc -l)"
+
+      - name: Create skills package.json
+        run: |
+          VERSION=$(node -p "require('./npm/package.json').version")
+          cat > skills/package.json << EOF
+          {
+            "name": "${SKILLS_PKG_NAME}",
+            "version": "${VERSION}",
+            "description": "rover CLI skill files for AI coding tools",
+            "license": "Apache-2.0",
+            "files": ["**/*.md"],
+            "keywords": ["rover", "a2a", "agent", "skills", "ai-agent"]
+          }
+          EOF
+
+      - name: Configure npm for Artifactory
+        env:
+          ARTIFACTORY_URL: ${{ secrets.ARTIFACTORY_URL }}
+          ARTIFACTORY_TOKEN: ${{ secrets.ARTIFACTORY_TOKEN }}
+        run: |
+          # Extract the scope from package name (e.g. @rover/skills → @rover)
+          SCOPE=$(echo "$SKILLS_PKG_NAME" | grep -o '@[^/]*' || echo "")
+
+          # Write .npmrc scoping the registry to Artifactory
+          if [ -n "$SCOPE" ]; then
+            echo "${SCOPE}:registry=${ARTIFACTORY_URL}" >> ~/.npmrc
+          fi
+          echo "${ARTIFACTORY_URL}:_authToken=${ARTIFACTORY_TOKEN}" >> ~/.npmrc
+          echo "always-auth=true" >> ~/.npmrc
+
+      - name: Pack and publish
+        working-directory: skills
+        env:
+          ARTIFACTORY_URL: ${{ secrets.ARTIFACTORY_URL }}
+        run: |
+          npm pack
+          npm publish --registry "${ARTIFACTORY_URL}"
+
+      - name: Summarize
+        run: |
+          VERSION=$(node -p "require('./npm/package.json').version")
+          echo "### Published ${SKILLS_PKG_NAME}@${VERSION} to Artifactory" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Skills included:" >> "$GITHUB_STEP_SUMMARY"
+          find skills -name 'SKILL.md' | sed 's|skills/||;s|/SKILL.md||' | sort \
+            | awk '{print "- " $0}' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,35 @@
+{
+  "name": "@rover/agent-cli",
+  "version": "0.1.0",
+  "description": "A2A CLI — interact with A2A protocol agents from the terminal",
+  "license": "Apache-2.0",
+  "keywords": [
+    "a2a",
+    "agent2agent",
+    "ai-agent",
+    "agent-skills",
+    "cli",
+    "oauth2",
+    "streaming"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "a2a": "./bin.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin.js",
+    "install.js"
+  ],
+  "optionalDependencies": {
+    "@rover/agent-cli-linux-x64":    "0.1.0",
+    "@rover/agent-cli-linux-arm64":  "0.1.0",
+    "@rover/agent-cli-darwin-x64":   "0.1.0",
+    "@rover/agent-cli-darwin-arm64": "0.1.0",
+    "@rover/agent-cli-win32-x64":    "0.1.0"
+  }
+}

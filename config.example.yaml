@@ -1,0 +1,12 @@
+# agc config — copy to ~/.config/agc/config.yaml
+# Run `agc agent use <alias>` to switch the active agent.
+
+current_agent: rover
+current_profile: default
+
+agents:
+  rover-dev:
+    url: https://dev.genai.stargate.toyota/a2a/rover-agent
+    description: Rover Agent (dev)
+    oauth:
+      client_id: https://dev.genai.stargate.toyota/a2a/agc/.well-known/client-metadata.json
