@@ -1,0 +1,58 @@
+[workspace]
+members = ["agc"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.85"
+repository = "https://github.com/a2aproject/a2a-rs"
+
+# ── a2a-rs workspace deps (re-declared here so their { workspace = true }
+#    references resolve correctly when used as path deps from this workspace)
+[workspace.dependencies]
+# Internal a2a crates — paths relative to our root
+a2a        = { package = "agntcy-a2a",        path = "a2a-rs/a2a",        version = "0.2.4" }
+a2a-client = { package = "agntcy-a2a-client", path = "a2a-rs/a2a-client", version = "0.1.13" }
+a2a-server = { package = "agntcy-a2a-server", path = "a2a-rs/a2a-server", version = "0.2.6" }
+a2a-pb     = { package = "agntcy-a2a-pb",     path = "a2a-rs/a2a-pb",     version = "0.1.6" }
+a2a-grpc   = { package = "agntcy-a2a-grpc",   path = "a2a-rs/a2a-grpc",   version = "0.1.11" }
+a2a-slimrpc = { package = "agntcy-a2a-slimrpc", path = "a2a-rs/a2a-slimrpc", version = "0.1.8" }
+
+# Serialization
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+pbjson      = "0.7"
+pbjson-types = "0.7"
+
+# Async
+tokio          = { version = "1", features = ["full"] }
+tokio-stream   = "0.1"
+futures        = "0.3"
+async-trait    = "0.1"
+pin-project-lite = "0.2"
+
+# HTTP
+axum       = { version = "0.8", features = ["macros"] }
+reqwest    = { version = "0.12", features = ["json", "stream"] }
+tower      = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
+hyper      = "1"
+
+# gRPC / protobuf
+tonic              = "0.13"
+tonic-build        = "0.13"
+prost              = "0.13"
+prost-types        = "0.13"
+pbjson-build       = "0.7"
+protoc-bin-vendored = "3"
+slim_bindings      = { package = "agntcy-slim-bindings", version = "1.3.0" }
+
+# Utilities
+chrono    = { version = "0.4", features = ["serde"] }
+base64    = "0.22"
+thiserror = "2"
+uuid      = { version = "1", features = ["v7"] }
+semver    = "1"
+tracing   = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

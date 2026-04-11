@@ -1,0 +1,80 @@
+[package]
+name = "agc"
+version = "0.1.0"
+description = "Agent CLI — interact with A2A protocol agents"
+edition = "2024"
+license = "Apache-2.0"
+
+[[bin]]
+name = "agc"
+path = "src/main.rs"
+
+[lib]
+name = "agc"
+path = "src/lib.rs"
+
+[dependencies]
+# A2A protocol (submodule path deps — a2a-rs workspace resolves their internal deps)
+a2a        = { package = "agntcy-a2a",        path = "../a2a-rs/a2a" }
+a2a-client = { package = "agntcy-a2a-client", path = "../a2a-rs/a2a-client" }
+a2acli     = { package = "agntcy-a2acli",     path = "../a2a-rs/a2acli" }
+
+# gws-cli library (for validate helpers — is_dangerous_unicode etc.)
+google-workspace = { path = "../gws-cli/crates/google-workspace" }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Async
+tokio      = { version = "1",   features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures    = "0.3"
+
+# Serialization
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# HTTP (rustls to avoid openssl system dep)
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-native-roots"] }
+
+# Error handling
+thiserror = "2"
+anyhow    = "1"
+
+# OAuth2 (generic — not Google-specific)
+oauth2 = { version = "4", features = ["reqwest"] }
+
+# Token encryption
+aes-gcm = "0.10"
+rand    = "0.8"
+base64  = { version = "0.22", features = ["std"] }
+zeroize = { version = "1", features = ["derive"] }
+sha2    = "0.10"
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+# File system
+tempfile = "3"
+dirs     = "5"
+
+# Browser open
+open = "5"
+
+# Logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# ── Platform-specific keyring backends ───────────────────────────────
+# Without explicit features, keyring v3 uses an in-process mock (no persistence).
+# Go's go-keyring has D-Bus built in; we must opt in explicitly here.
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
+keyring = "3"
