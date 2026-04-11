@@ -1,8 +1,0 @@
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 📖 Generate skills
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- Fetches live agent cards
- and generates SKILL.md
- files for AI coding tools.
-

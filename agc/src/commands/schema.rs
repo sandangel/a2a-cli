@@ -112,7 +112,7 @@ fn send_schema() -> serde_json::Value {
                 "flag": "--return-immediately",
                 "type": "bool",
                 "required": false,
-                "description": "Return a task ID immediately without waiting for completion. Poll with `agc task get <id>`."
+                "description": "Return immediately without waiting for completion. Poll status with `agc get-task <id>`."
             },
             "accepted_output_modes": {
                 "flag": "--accept-output <mime>",
@@ -125,18 +125,18 @@ fn send_schema() -> serde_json::Value {
             "agc send \"Summarise this PR\"",
             "agc send \"Continue the analysis\" --context-id abc123",
             "agc send \"Generate a report\" --return-immediately",
-            "agc --agent prod send \"Status?\" --fields text"
+            "agc --agent prod send \"Status?\" --fields status.message.parts"
         ]
     })
 }
 
 fn task_schema() -> serde_json::Value {
     json!({
-        "description": "A Task is the result of `agc send` or retrievable via `agc task get <id>`.",
+        "description": "A Task is the result of `agc send` or retrievable via `agc get-task <id>`.",
         "fields": {
             "id": {
                 "type": "string",
-                "description": "Unique task identifier. Use with `agc task get`, `agc task cancel`, `agc subscribe`."
+                "description": "Unique task identifier. Use with `agc get-task`, `agc cancel-task`, `agc subscribe`."
             },
             "context_id": {
                 "type": "string",
@@ -171,9 +171,9 @@ fn task_schema() -> serde_json::Value {
             "check_complete": "--fields id,status.state,status.message"
         },
         "examples": [
-            "agc task get <id>",
-            "agc task get <id> --fields status.state",
-            "agc task list --status working",
+            "agc get-task <id>",
+            "agc get-task <id> --fields status.state",
+            "agc list-tasks --status working",
             "agc subscribe <id>       # stream live updates"
         ]
     })

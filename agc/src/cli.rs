@@ -1,5 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
+use crate::formatter::OutputFormat;
+
 // Re-use a2acli's arg structs — no redefinition needed.
 pub use a2acli::{
     Binding, MessageCommand, PushConfigCommand, TaskIdCommand, TaskLookupCommand,
@@ -54,6 +56,11 @@ pub struct GlobalArgs {
     /// Emit compact JSON instead of pretty-printed
     #[arg(long, global = true)]
     pub compact: bool,
+
+    /// Output format: json (default), table, yaml, csv
+    #[arg(long, global = true, default_value = "json",
+          value_parser = |s: &str| OutputFormat::parse(s))]
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Subcommand)]

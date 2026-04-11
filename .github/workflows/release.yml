@@ -1,0 +1,209 @@
+# Release workflow for @rover/agent-cli
+#
+# Triggered by pushing a semver tag (e.g. v0.1.0).
+# Builds platform binaries, creates a GitHub Release, and publishes to npm.
+
+name: Release
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      publishing: ${{ github.ref_type == 'tag' }}
+    steps:
+      - id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive: zip
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: false
+
+      - name: Checkout submodules (SSH → HTTPS)
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p agc --locked
+          else
+            cargo build --release --target ${{ matrix.target }} -p agc --locked
+          fi
+        shell: bash
+
+      - name: Package (unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          ARTIFACT="agc-${{ matrix.target }}"
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/agc" staging/
+          cp LICENSE README.md staging/
+          tar czf "${ARTIFACT}.tar.gz" -C staging .
+          shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
+        shell: bash
+
+      - name: Package (windows)
+        if: matrix.archive == 'zip'
+        run: |
+          $ARTIFACT = "agc-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $ARTIFACT
+          Copy-Item "target/${{ matrix.target }}/release/agc.exe" "$ARTIFACT/"
+          Copy-Item LICENSE, README.md "$ARTIFACT/"
+          Compress-Archive -Path "$ARTIFACT/*" -DestinationPath "$ARTIFACT.zip"
+          (Get-FileHash "$ARTIFACT.zip" -Algorithm SHA256).Hash.ToLower() + "  $ARTIFACT.zip" | Out-File -Encoding ascii "$ARTIFACT.zip.sha256"
+        shell: pwsh
+
+      - name: Attest
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: agc-${{ matrix.target }}.${{ matrix.archive }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: |
+            agc-${{ matrix.target }}.${{ matrix.archive }}
+            agc-${{ matrix.target }}.${{ matrix.archive }}.sha256
+
+  release:
+    needs: [plan, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "${{ needs.plan.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          NOTES="## Installation
+
+          ### npm (recommended)
+
+          \`\`\`bash
+          npm install -g @rover/agent-cli
+          \`\`\`
+
+          ### Direct download
+
+          Download the archive for your OS and architecture from the assets below.
+
+          Replace \`<target>\` with your platform (e.g., \`aarch64-apple-darwin\` or \`x86_64-unknown-linux-gnu\`).
+
+          \`\`\`bash
+          # 1. Download the archive and its checksum
+          curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz
+          curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz.sha256
+
+          # 2. Verify the checksum
+          shasum -a 256 -c agc-<target>.tar.gz.sha256
+
+          # 3. Extract and install
+          tar -xzf agc-<target>.tar.gz
+          chmod +x agc
+          sudo mv agc /usr/local/bin/
+          \`\`\`
+          "
+
+          gh release create "${{ github.ref_name }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ github.ref_name }}" \
+            --notes "$NOTES" \
+            --generate-notes \
+            $PRERELEASE_FLAG \
+            artifacts/*
+
+  publish-npm:
+    needs: [plan, release]
+    runs-on: ubuntu-latest
+    if: ${{ needs.plan.outputs.publishing == 'true' && needs.plan.outputs.prerelease == 'false' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release'
+          scope: '@rover'
+
+      - name: Publish to Artifactory npm
+        working-directory: npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,8 +1,0 @@
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 🔍 INSPECT THE AGENT CARD
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- What can the agent do?
- What auth does it need?
- Just ask.
-

@@ -1,8 +1,0 @@
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 🔐 Authenticate
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- Auth is per-agent.
- OAuth flow auto-detected
- from the agent card.
-

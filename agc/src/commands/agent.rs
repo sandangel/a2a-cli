@@ -1,8 +1,9 @@
 use clap::{Args, Subcommand};
 
+use crate::cli::GlobalArgs;
 use crate::config::{Agent, OAuthConfig, load, save};
 use crate::error::{AgcError, Result};
-use crate::printer::print_json;
+use crate::printer::{print_json, print_value};
 use crate::validate::{validate_agent_url, validate_alias};
 
 #[derive(Debug, Subcommand)]
@@ -61,7 +62,7 @@ pub struct UpdateArgs {
     pub transport: Option<String>,
 }
 
-pub async fn run_agent(cmd: &AgentCommand) -> Result<()> {
+pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
     match cmd {
         AgentCommand::Add(a) => {
             validate_alias(&a.alias)?;
@@ -121,7 +122,7 @@ pub async fn run_agent(cmd: &AgentCommand) -> Result<()> {
                     })
                 })
                 .collect();
-            print_json(&serde_json::Value::Array(entries), None, false)?;
+            print_value(&serde_json::Value::Array(entries), args.fields.as_deref(), args.format.clone(), args.compact)?;
         }
         AgentCommand::Remove(a) => {
             let mut cfg = load()?;
@@ -148,7 +149,7 @@ pub async fn run_agent(cmd: &AgentCommand) -> Result<()> {
             let agent = cfg.agents.get(alias).ok_or_else(|| {
                 AgcError::Config(format!("unknown alias {alias:?}"))
             })?;
-            print_json(
+            print_value(
                 &serde_json::json!({
                     "alias": alias,
                     "url": agent.url,
@@ -157,8 +158,7 @@ pub async fn run_agent(cmd: &AgentCommand) -> Result<()> {
                     "description": agent.description,
                     "oauth": { "client_id": agent.oauth.client_id, "scopes": agent.oauth.scopes },
                 }),
-                None,
-                false,
+                args.fields.as_deref(), args.format.clone(), args.compact,
             )?;
         }
         AgentCommand::Update(a) => {

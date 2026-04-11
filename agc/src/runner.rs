@@ -1,18 +1,23 @@
 //! run_to_value — mirrors a2acli's run() but returns serde_json::Value
 //! instead of printing, enabling --fields filtering.
+//!
+//! A2A v0.3 agents are handled transparently: `run_to_value` and
+//! `run_streaming` detect the protocol version from the card and delegate
+//! v0.3 calls to the [`a2a_compat`] crate.
 
 use std::sync::Arc;
 
 use a2a::{
-    AgentCard, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
+    AgentCard, CreateTaskPushNotificationConfigRequest,
     DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
     GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
     ListTasksRequest, Message, Part, PushNotificationConfig, AuthenticationInfo,
     Role, SendMessageConfiguration, SendMessageRequest, SubscribeToTaskRequest,
     TaskState,
 };
-use a2a_client::{A2AClient, A2AClientFactory, agent_card::AgentCardResolver, auth::AuthInterceptor};
-use a2acli::{Binding, MessageCommand, PushConfigCommand, TaskIdCommand, TaskLookupCommand, ListTasksCommand};
+use a2a_client::{A2AClient, A2AClientFactory, auth::AuthInterceptor};
+use a2a_compat::MessageParams;
+use a2acli::{Binding, MessageCommand, PushConfigCommand};
 use crate::cli::Command;
 use futures::StreamExt;
 use serde_json::Value;
@@ -21,16 +26,8 @@ use crate::error::{AgcError, Result};
 
 // ── Public entry points ───────────────────────────────────────────────
 
-/// Detect whether a raw card JSON is A2A v0.3 (protocolVersion starts with "0.").
-fn is_v03(raw: &Value) -> bool {
-    raw.get("protocolVersion")
-        .and_then(|v| v.as_str())
-        .map(|v| v.starts_with("0."))
-        .unwrap_or(false)
-}
-
 /// Run a non-streaming command and return the result as a JSON Value.
-/// Streaming commands (Stream, Subscribe) must use run_streaming().
+/// Streaming commands (Stream, Subscribe) must use [`run_streaming`].
 pub async fn run_to_value(
     command: &Command,
     base_url: &str,
@@ -38,21 +35,26 @@ pub async fn run_to_value(
     binding: Option<Binding>,
     tenant: Option<&str>,
 ) -> Result<Value> {
-    // Detect v0.3 and dispatch to compat path.
+    // Fetch once — reuse for both version detection and client construction.
     let raw = fetch_card_raw(base_url, bearer).await?;
-    if is_v03(&raw) {
-        let rpc_url = raw.get("url").and_then(|u| u.as_str())
-            .unwrap_or(base_url);
-        return run_v03_to_value(command, rpc_url, bearer, tenant).await;
+
+    if a2a_compat::is_v03(&raw) {
+        let url = a2a_compat::rpc_url_from_card(&raw, base_url);
+        // Card commands: return the already-fetched raw card (avoids a second fetch).
+        if matches!(command, Command::Card | Command::ExtendedCard) {
+            return Ok(raw);
+        }
+        let transport = a2a_compat::transport_from_card(&raw);
+        let client = a2a_compat::Client::new(url, bearer, transport)?;
+        return dispatch_v03(&client, command, tenant).await;
     }
 
+    let card = parse_card_from_raw(&raw)?;
+
     match command {
-        Command::Card => {
-            let card = fetch_card(base_url, bearer).await?;
-            Ok(serde_json::to_value(&card)?)
-        }
+        Command::Card => Ok(serde_json::to_value(&card)?),
         Command::ExtendedCard => {
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let result = client
                 .get_extended_agent_card(&GetExtendedAgentCardRequest {
                     tenant: tenant.map(str::to_string),
@@ -63,13 +65,13 @@ pub async fn run_to_value(
         }
         Command::Send(cmd) => {
             let req = build_send_request(cmd, tenant);
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let result = client.send_message(&req).await;
             let resp = finish(client, result).await?;
             Ok(serde_json::to_value(&resp)?)
         }
         Command::GetTask(cmd) => {
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let result = client
                 .get_task(&GetTaskRequest {
                     id: cmd.id.clone(),
@@ -81,11 +83,11 @@ pub async fn run_to_value(
             Ok(serde_json::to_value(&task)?)
         }
         Command::ListTasks(cmd) => {
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let result = client
                 .list_tasks(&ListTasksRequest {
                     context_id: cmd.context_id.clone(),
-                    status: cmd.status.map(|s| TaskState::from(s)),
+                    status: cmd.status.map(TaskState::from),
                     page_size: cmd.page_size,
                     page_token: cmd.page_token.clone(),
                     history_length: cmd.history_length,
@@ -98,7 +100,7 @@ pub async fn run_to_value(
             Ok(serde_json::to_value(&resp)?)
         }
         Command::CancelTask(cmd) => {
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let result = client
                 .cancel_task(&a2a::CancelTaskRequest {
                     id: cmd.id.clone(),
@@ -109,7 +111,9 @@ pub async fn run_to_value(
             let task = finish(client, result).await?;
             Ok(serde_json::to_value(&task)?)
         }
-        Command::PushConfig { command } => run_push_to_value(command, base_url, bearer, binding, tenant).await,
+        Command::PushConfig { command } => {
+            run_push_to_value(command, &card, bearer, binding, tenant).await
+        }
         // Streaming commands handled separately.
         Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
         | Command::Schema { .. } | Command::GenerateSkills(_) => {
@@ -131,16 +135,20 @@ pub async fn run_streaming(
     on_event: impl FnMut(Value) -> Result<()>,
 ) -> Result<()> {
     let raw = fetch_card_raw(base_url, bearer).await?;
-    if is_v03(&raw) {
-        let rpc_url = raw.get("url").and_then(|u| u.as_str()).unwrap_or(base_url);
-        return run_v03_streaming(command, rpc_url, bearer, tenant, on_event).await;
+
+    if a2a_compat::is_v03(&raw) {
+        let url = a2a_compat::rpc_url_from_card(&raw, base_url);
+        let transport = a2a_compat::transport_from_card(&raw);
+        let client = a2a_compat::Client::new(url, bearer, transport)?;
+        return dispatch_v03_streaming(&client, command, tenant, on_event).await;
     }
 
+    let card = parse_card_from_raw(&raw)?;
     let mut on_event = on_event;
     match command {
         Command::Stream(cmd) => {
             let req = build_send_request(cmd, tenant);
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let mut stream = client
                 .send_streaming_message(&req)
                 .await
@@ -148,13 +156,13 @@ pub async fn run_streaming(
             while let Some(event) = stream.next().await {
                 match event {
                     Ok(e) => on_event(serde_json::to_value(&e)?)?,
-                    Err(e) => eprintln!("stream error: {e}"),
+                    Err(e) => return Err(AgcError::A2A(e)),
                 }
             }
             let _ = client.destroy().await;
         }
         Command::Subscribe(cmd) => {
-            let client = build_client(base_url, bearer, binding).await?;
+            let client = build_client_from_card(&card, bearer, binding).await?;
             let mut stream = client
                 .subscribe_to_task(&SubscribeToTaskRequest {
                     id: cmd.id.clone(),
@@ -165,7 +173,7 @@ pub async fn run_streaming(
             while let Some(event) = stream.next().await {
                 match event {
                     Ok(e) => on_event(serde_json::to_value(&e)?)?,
-                    Err(e) => eprintln!("stream error: {e}"),
+                    Err(e) => return Err(AgcError::A2A(e)),
                 }
             }
             let _ = client.destroy().await;
@@ -179,16 +187,93 @@ pub fn is_streaming(command: &Command) -> bool {
     matches!(command, Command::Stream(_) | Command::Subscribe(_))
 }
 
-// ── Push config ───────────────────────────────────────────────────────
+// ── v0.3 dispatch ─────────────────────────────────────────────────────
+
+/// Dispatch a non-streaming command to an A2A v0.3 agent.
+async fn dispatch_v03(
+    client: &a2a_compat::Client,
+    command: &Command,
+    tenant: Option<&str>,
+) -> Result<Value> {
+    match command {
+        Command::Send(cmd) => {
+            let params = msg_params(cmd, tenant);
+            client.send_message(&params).await.map_err(AgcError::V03)
+        }
+        Command::GetTask(cmd) => client
+            .get_task(&cmd.id, cmd.history_length)
+            .await
+            .map_err(AgcError::V03),
+        Command::ListTasks(cmd) => client
+            .list_tasks(
+                cmd.context_id.as_deref(),
+                cmd.page_size,
+                cmd.page_token.as_deref(),
+            )
+            .await
+            .map_err(AgcError::V03),
+        Command::CancelTask(cmd) => {
+            client.cancel_task(&cmd.id).await.map_err(AgcError::V03)
+        }
+        Command::PushConfig { .. } => Err(AgcError::InvalidInput(
+            "push-config not supported for v0.3 agents".to_string(),
+        )),
+        Command::Stream(_) | Command::Subscribe(_) => Err(AgcError::InvalidInput(
+            "use run_streaming() for streaming commands".to_string(),
+        )),
+        // Card/ExtendedCard handled before calling this function.
+        Command::Card | Command::ExtendedCard => {
+            unreachable!("card commands handled before dispatch_v03")
+        }
+        Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
+        | Command::Schema { .. } | Command::GenerateSkills(_) => {
+            unreachable!("management commands handled before runner")
+        }
+    }
+}
+
+/// Dispatch a streaming command to an A2A v0.3 agent.
+async fn dispatch_v03_streaming(
+    client: &a2a_compat::Client,
+    command: &Command,
+    tenant: Option<&str>,
+    on_event: impl FnMut(Value) -> Result<()>,
+) -> Result<()> {
+    match command {
+        Command::Stream(cmd) => {
+            let params = msg_params(cmd, tenant);
+            client.stream_message(&params, on_event).await?;
+        }
+        Command::Subscribe(cmd) => {
+            client.subscribe(&cmd.id, on_event).await?;
+        }
+        _ => return Err(AgcError::InvalidInput("not a streaming command".to_string())),
+    }
+    Ok(())
+}
+
+/// Build [`MessageParams`] from a CLI [`MessageCommand`] and optional tenant.
+fn msg_params(cmd: &MessageCommand, tenant: Option<&str>) -> MessageParams {
+    MessageParams {
+        text: cmd.text.clone(),
+        context_id: cmd.context_id.clone(),
+        task_id: cmd.task_id.clone(),
+        history_length: cmd.history_length,
+        return_immediately: cmd.return_immediately,
+        tenant: tenant.map(str::to_string),
+    }
+}
+
+// ── Push config (v1 only) ─────────────────────────────────────────────
 
 async fn run_push_to_value(
     command: &PushConfigCommand,
-    base_url: &str,
+    card: &AgentCard,
     bearer: Option<&str>,
     binding: Option<Binding>,
     tenant: Option<&str>,
 ) -> Result<Value> {
-    let client = build_client(base_url, bearer, binding).await?;
+    let client = build_client_from_card(card, bearer, binding).await?;
     let tenant = tenant.map(str::to_string);
 
     match command {
@@ -254,233 +339,72 @@ async fn run_push_to_value(
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
+// ── Card helpers ──────────────────────────────────────────────────────
 
 pub async fn fetch_card(base_url: &str, bearer: Option<&str>) -> Result<AgentCard> {
-    let http = build_http_client(bearer)?;
-    // Try v1 parse first; fall back to v0.3 normalization.
-    match AgentCardResolver::new(Some(http)).resolve(base_url).await {
-        Ok(card) => Ok(card),
-        Err(_) => {
-            let raw = fetch_card_raw(base_url, bearer).await?;
-            normalize_v03_card(&raw)
-        }
-    }
+    let raw = fetch_card_raw(base_url, bearer).await?;
+    parse_card_from_raw(&raw)
 }
 
-/// Normalize an A2A v0.3 card JSON into a v1 AgentCard.
-fn normalize_v03_card(raw: &serde_json::Value) -> Result<AgentCard> {
-    use serde_json::{json, Map};
-
-    let mut v1 = raw.as_object().cloned().unwrap_or_default();
-
-    // v0.3 has a top-level `url` pointing to the RPC endpoint.
-    // Convert to `supportedInterfaces` array.
-    if !v1.contains_key("supportedInterfaces") {
-        if let Some(url) = v1.get("url").and_then(|u| u.as_str()) {
-            let binding = v1.get("preferredTransport")
-                .and_then(|t| t.as_str())
-                .unwrap_or("JSONRPC");
-            v1.insert("supportedInterfaces".into(), json!([{
-                "url": url,
-                "protocolBinding": binding,
-                "protocolVersion": "1.0"
-            }]));
-        }
+/// Parse a raw card JSON into an AgentCard.
+/// Tries v1 deserialization first; falls back to v0.3 normalization.
+fn parse_card_from_raw(raw: &Value) -> Result<AgentCard> {
+    if let Ok(card) = serde_json::from_value::<AgentCard>(raw.clone()) {
+        return Ok(card);
     }
-
-    // Normalize security schemes: v0.3 uses `type: "oauth2"`, v1 uses `oauth2SecurityScheme` key.
-    if let Some(schemes) = v1.get("securitySchemes").and_then(|s| s.as_object()).cloned() {
-        let mut normalized: Map<String, serde_json::Value> = Map::new();
-        for (name, scheme) in &schemes {
-            if scheme.get("oauth2SecurityScheme").is_some() {
-                normalized.insert(name.clone(), scheme.clone()); // already v1
-            } else if scheme.get("type").and_then(|t| t.as_str()) == Some("oauth2") {
-                // Wrap flows under oauth2SecurityScheme key.
-                let mut inner = scheme.as_object().cloned().unwrap_or_default();
-                inner.remove("type");
-                normalized.insert(name.clone(), json!({ "oauth2SecurityScheme": inner }));
-            } else {
-                normalized.insert(name.clone(), scheme.clone());
-            }
-        }
-        v1.insert("securitySchemes".into(), serde_json::Value::Object(normalized));
-    }
-
-    serde_json::from_value(serde_json::Value::Object(v1))
-        .map_err(|e| AgcError::A2A(a2a::A2AError::internal(format!("card parse: {e}"))))
+    a2a_compat::normalize_card(raw).map_err(AgcError::V03)
 }
 
-/// Fetch the agent card as raw JSON — handles any protocol version without
-/// failing on schema differences (e.g. v0.3 vs v1).
+/// Fetch the agent card as raw JSON — works for any protocol version.
 pub async fn fetch_card_raw(base_url: &str, bearer: Option<&str>) -> Result<serde_json::Value> {
     let http = build_http_client(bearer)?;
     let url = format!("{}/.well-known/agent-card.json", base_url.trim_end_matches('/'));
     let resp = http.get(&url).send().await.map_err(AgcError::Http)?;
     if !resp.status().is_success() {
         return Err(AgcError::A2A(a2a::A2AError::internal(
-            format!("agent card fetch returned HTTP {}", resp.status())
+            format!("agent card fetch returned HTTP {}", resp.status()),
         )));
     }
     resp.json().await.map_err(AgcError::Http)
 }
 
-fn build_http_client(bearer: Option<&str>) -> Result<reqwest::Client> {
+pub(crate) fn build_http_client(bearer: Option<&str>) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder();
     if let Some(token) = bearer {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::AUTHORIZATION,
-            format!("Bearer {token}").parse().map_err(|e| AgcError::Auth(format!("{e}")))?,
+            format!("Bearer {token}")
+                .parse()
+                .map_err(|e| AgcError::Auth(format!("{e}")))?,
         );
         builder = builder.default_headers(headers);
     }
     builder.build().map_err(AgcError::Http)
 }
 
-async fn build_client(base_url: &str, bearer: Option<&str>, binding: Option<Binding>) -> Result<A2AClient> {
-    let card = fetch_card(base_url, bearer).await?;
+async fn build_client_from_card(
+    card: &AgentCard,
+    bearer: Option<&str>,
+    binding: Option<Binding>,
+) -> Result<A2AClient> {
     let mut builder = A2AClientFactory::builder();
     if let Some(b) = binding {
-        let proto = match b { Binding::Jsonrpc => "JSONRPC", Binding::HttpJson => "HTTP+JSON" };
+        let proto = match b {
+            Binding::Jsonrpc => "JSONRPC",
+            Binding::HttpJson => "HTTP+JSON",
+        };
         builder = builder.preferred_bindings(vec![proto.to_string()]);
     }
-
     if let Some(token) = bearer {
         builder = builder.with_interceptor(Arc::new(AuthInterceptor::bearer(token)));
     }
-    builder.build().create_from_card(&card).await.map_err(AgcError::A2A)
+    builder.build().create_from_card(card).await.map_err(AgcError::A2A)
 }
 
 async fn finish<T>(client: A2AClient, result: std::result::Result<T, a2a::A2AError>) -> Result<T> {
     let _ = client.destroy().await;
     result.map_err(AgcError::A2A)
-}
-
-// ── A2A v0.3 compat runner ────────────────────────────────────────────
-//
-// v0.3 uses different JSONRPC method names and request/response formats.
-// Method mapping:  message/send, message/stream, tasks/get, tasks/cancel, tasks/resubscribe
-
-async fn run_v03_to_value(
-    command: &Command,
-    rpc_url: &str,
-    bearer: Option<&str>,
-    tenant: Option<&str>,
-) -> Result<Value> {
-    match command {
-        Command::Card | Command::ExtendedCard => fetch_card_raw(rpc_url, bearer).await,
-        Command::Send(cmd) => {
-            jsonrpc_call(rpc_url, bearer, "message/send",
-                v03_send_params(&cmd.text, cmd.context_id.as_deref(), cmd.task_id.as_deref(),
-                    cmd.history_length, cmd.return_immediately, tenant)).await
-        }
-        Command::GetTask(cmd) => {
-            jsonrpc_call(rpc_url, bearer, "tasks/get",
-                serde_json::json!({ "id": cmd.id, "historyLength": cmd.history_length })).await
-        }
-        Command::ListTasks(cmd) => {
-            jsonrpc_call(rpc_url, bearer, "tasks/list",
-                serde_json::json!({ "contextId": cmd.context_id, "pageSize": cmd.page_size,
-                    "pageToken": cmd.page_token })).await
-        }
-        Command::CancelTask(cmd) => {
-            jsonrpc_call(rpc_url, bearer, "tasks/cancel",
-                serde_json::json!({ "id": cmd.id })).await
-        }
-        Command::Stream(_) | Command::Subscribe(_) => Err(AgcError::InvalidInput(
-            "use run_streaming() for streaming commands".to_string())),
-        Command::PushConfig { .. } => Err(AgcError::InvalidInput(
-            "push-config not supported for v0.3 agents".to_string())),
-        Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
-        | Command::Schema { .. } | Command::GenerateSkills(_) => {
-            unreachable!("management commands handled before runner")
-        }
-    }
-}
-
-pub async fn run_v03_streaming(
-    command: &Command,
-    rpc_url: &str,
-    bearer: Option<&str>,
-    tenant: Option<&str>,
-    mut on_event: impl FnMut(Value) -> Result<()>,
-) -> Result<()> {
-    use tokio::io::AsyncBufReadExt;
-
-    let (method, params) = match command {
-        Command::Stream(cmd) => ("message/stream",
-            v03_send_params(&cmd.text, cmd.context_id.as_deref(), cmd.task_id.as_deref(),
-                cmd.history_length, false, tenant)),
-        Command::Subscribe(cmd) => ("tasks/resubscribe",
-            serde_json::json!({ "id": cmd.id })),
-        _ => return Err(AgcError::InvalidInput("not a streaming command".to_string())),
-    };
-
-    let body = serde_json::json!({
-        "jsonrpc": "2.0", "id": uuid::Uuid::new_v4().to_string(),
-        "method": method, "params": params,
-    });
-
-    let resp = build_http_client(bearer)?
-        .post(rpc_url).header("Content-Type", "application/json").json(&body)
-        .send().await.map_err(AgcError::Http)?;
-
-    if !resp.status().is_success() {
-        let status = resp.status().as_u16();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(AgcError::A2A(a2a::A2AError::internal(format!("HTTP {status}: {text}"))));
-    }
-
-    let stream = resp.bytes_stream().map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
-    let mut reader = tokio::io::BufReader::new(tokio_util::io::StreamReader::new(stream));
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if reader.read_line(&mut line).await.map_err(AgcError::Io)? == 0 { break; }
-        let trimmed = line.trim_start_matches("data:").trim();
-        if trimmed.is_empty() || trimmed == "[DONE]" { continue; }
-        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-            on_event(v)?;
-        }
-    }
-    Ok(())
-}
-
-async fn jsonrpc_call(rpc_url: &str, bearer: Option<&str>, method: &str, params: Value) -> Result<Value> {
-    let body = serde_json::json!({
-        "jsonrpc": "2.0", "id": uuid::Uuid::new_v4().to_string(),
-        "method": method, "params": params,
-    });
-    let json: Value = build_http_client(bearer)?
-        .post(rpc_url).header("Content-Type", "application/json").json(&body)
-        .send().await.map_err(AgcError::Http)?
-        .json().await.map_err(AgcError::Http)?;
-
-    if let Some(err) = json.get("error") {
-        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
-        return Err(AgcError::A2A(a2a::A2AError::internal(format!("jsonrpc error: {msg}"))));
-    }
-    Ok(json.get("result").cloned().unwrap_or(json))
-}
-
-fn v03_send_params(text: &str, context_id: Option<&str>, task_id: Option<&str>,
-    history_length: Option<i32>, return_immediately: bool, tenant: Option<&str>) -> Value {
-    serde_json::json!({
-        "message": {
-            "role": "user",
-            "parts": [{ "type": "text", "text": text }],
-            "messageId": uuid::Uuid::new_v4().to_string(),
-            "contextId": context_id,
-            "taskId": task_id,
-        },
-        "config": {
-            "blocking": !return_immediately,
-            "historyLength": history_length,
-            "acceptedOutputModes": ["text/plain", "text/markdown"],
-        },
-        "metadata": { "tenant": tenant },
-    })
 }
 
 // ── Build send request (v1) ───────────────────────────────────────────
@@ -510,5 +434,109 @@ fn build_send_request(cmd: &MessageCommand, tenant: Option<&str>) -> SendMessage
         configuration,
         metadata: None,
         tenant: tenant.map(str::to_string),
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use a2acli::{MessageCommand, TaskIdCommand};
+
+    // ── is_streaming ──────────────────────────────────────────────────
+
+    #[test]
+    fn is_streaming_stream_command() {
+        let cmd = Command::Stream(MessageCommand {
+            text: "hi".to_string(),
+            context_id: None,
+            task_id: None,
+            history_length: None,
+            accepted_output_modes: vec![],
+            return_immediately: false,
+        });
+        assert!(is_streaming(&cmd));
+    }
+
+    #[test]
+    fn is_streaming_subscribe_command() {
+        assert!(is_streaming(&Command::Subscribe(TaskIdCommand {
+            id: "t1".to_string()
+        })));
+    }
+
+    #[test]
+    fn is_streaming_send_is_false() {
+        let cmd = Command::Send(MessageCommand {
+            text: "hi".to_string(),
+            context_id: None,
+            task_id: None,
+            history_length: None,
+            accepted_output_modes: vec![],
+            return_immediately: false,
+        });
+        assert!(!is_streaming(&cmd));
+    }
+
+    #[test]
+    fn is_streaming_card_is_false() {
+        assert!(!is_streaming(&Command::Card));
+    }
+
+    // ── build_send_request ────────────────────────────────────────────
+
+    #[test]
+    fn build_send_request_minimal() {
+        let cmd = MessageCommand {
+            text: "hello world".to_string(),
+            context_id: None,
+            task_id: None,
+            history_length: None,
+            accepted_output_modes: vec![],
+            return_immediately: false,
+        };
+        let req = build_send_request(&cmd, None);
+        assert_eq!(req.message.text(), Some("hello world"));
+        assert!(req.configuration.is_none());
+        assert!(req.tenant.is_none());
+    }
+
+    #[test]
+    fn build_send_request_with_all_options() {
+        let cmd = MessageCommand {
+            text: "query".to_string(),
+            context_id: Some("ctx-1".to_string()),
+            task_id: Some("task-1".to_string()),
+            history_length: Some(5),
+            accepted_output_modes: vec!["text/plain".to_string()],
+            return_immediately: true,
+        };
+        let req = build_send_request(&cmd, Some("tenant-X"));
+        assert_eq!(req.message.context_id.as_deref(), Some("ctx-1"));
+        assert_eq!(req.message.task_id.as_deref(), Some("task-1"));
+        assert_eq!(req.tenant.as_deref(), Some("tenant-X"));
+        let cfg = req.configuration.unwrap();
+        assert_eq!(cfg.history_length, Some(5));
+        assert_eq!(cfg.return_immediately, Some(true));
+        assert_eq!(
+            cfg.accepted_output_modes.as_deref(),
+            Some(&["text/plain".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn build_send_request_return_immediately_sets_configuration() {
+        let cmd = MessageCommand {
+            text: "ping".to_string(),
+            context_id: None,
+            task_id: None,
+            history_length: None,
+            accepted_output_modes: vec![],
+            return_immediately: true,
+        };
+        let req = build_send_request(&cmd, None);
+        let cfg = req.configuration.unwrap();
+        assert_eq!(cfg.return_immediately, Some(true));
     }
 }

@@ -5,17 +5,17 @@ Designed to be used by humans and AI coding tools alike.
 
 ## Rules of Engagement for AI Agents
 
-- **Read the answer from `.text`** — every response has a `text` field with the agent's plaintext answer.
-- **Use `--format json`** for machine-readable output when parsing responses programmatically.
-- **Check `type`** to understand response state: `task_completed`, `input_required`, `task_failed`, etc.
+- **Read the answer from `status.message.parts`** — the agent's reply is in the task's status message parts (some agents also use `artifacts`).
+- **Use `--fields status.message.parts`** for concise extraction of the agent's reply (AI tools); use `--format table` for human-readable output.
+- **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
-- **Confirm before canceling tasks** — `agc task cancel` is destructive.
-- **Use `agc schema`** to inspect data structures before constructing `--params` payloads.
+- **Confirm before canceling tasks** — `agc cancel-task` is destructive.
+- **Use `agc schema`** to inspect data structures before crafting messages.
 
 ## Core Syntax
 
 ```bash
-agc [--agent <alias>] [--format json] <command> [flags] [args]
+agc [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <paths>] [--compact] <command> [flags] [args]
 ```
 
 ## Quick Start
@@ -31,53 +31,61 @@ agc auth login
 # Send a message
 agc send "Hello, agent!"
 
-# Get the answer in scripts / AI tools
-agc --format json send "What is the status?" | jq -r .text
+# Get just the text reply
+agc send "What is the status?" --fields status.message.parts
 ```
 
-## Output Modes
+## Output
 
-| Flag | Output | When to use |
-|------|--------|------------|
-| *(default)* | Table/text — auto-detects terminal vs pipe | Terminal |
-| `--format json` | Normalized `AgentResponse` JSON | Scripts, AI tools |
-| `--format yaml` | YAML output | Config-like data |
-| `--fields a,b.c` | Filter to specific fields | Extract one value |
+| Flag | Output |
+|------|--------|
+| *(default)* | Pretty-printed JSON |
+| `--format table` | Human-readable aligned table |
+| `--format yaml` | YAML |
+| `--format csv` | CSV |
+| `--compact` | Single-line JSON (only with `--format json`) |
+| `--fields a,b.c` | Filter to dot-notation field paths (JSON only; AI tools) |
 
-Output auto-detects: `table` in a TTY, `json` when stdout is piped.
+```bash
+# Humans
+agc send "Hello"                            # pretty JSON (default)
+agc --format table send "Hello"             # human-readable table
+agc --format table agent list               # table of agents
+agc --format table auth status              # table of token statuses
+
+# AI tools
+agc send "Hello" --fields status.state      # just the state
+agc send "Hello" --fields status.message.parts  # reply parts
+agc send "Hello" --compact                  # single-line JSON
+```
+
+Multi-agent output is always NDJSON — one compact JSON line per agent, each tagged with `agent` and `agent_url`.
 
 ## Send a Message
 
 ```bash
 agc send "Your message"
-agc --format json send "Your message" | jq -r .text   # extract answer
+agc send "Your message" --fields status.message.parts
 
 # Continue a conversation
-agc send --task-id   task-abc "Follow up"
-agc send --context-id ctx-abc "Another question"
+agc send "Follow up"   --task-id   task-abc
+agc send "Another one" --context-id ctx-abc
 
-# Full SendMessageRequest via --params (see: agc schema send)
-agc send --params '{"message":{"parts":[{"text":"hello"}],"taskId":"task-abc"}}'
+# Stream events as they arrive
+agc stream "Your message"
+
+# Return immediately (async) — poll with agc get-task
+agc send "Long job" --return-immediately
 ```
-
-**Exit codes for `--format json`:** 0 = success, 2 = input_required (reply with `--task-id`), 3 = auth_required (human must authenticate)
 
 ## Schema — Inspect Data Structures
 
 ```bash
-# List all A2A protocol operations
-agc schema
+agc schema send      # SendMessageRequest flags and fields
+agc schema task      # Task + state machine + useful field paths
+agc schema card      # AgentCard structure
 
-# Inspect a built-in type before constructing --params
-agc schema send        # SendMessageRequest structure
-agc schema task        # Task + state machine
-agc schema message     # Message type
-agc schema part        # Part (text/data/url/raw)
-agc schema card        # AgentCard
-agc schema artifact    # Artifact
-
-# Inline all $ref references
-agc schema task --resolve-refs
+agc schema skill <id>   # input/output schema for a specific skill (fetched live)
 ```
 
 ## Multi-Agent (Parallel)
@@ -85,10 +93,13 @@ agc schema task --resolve-refs
 ```bash
 agc --agent team-a --agent team-b send "Status?"    # specific agents
 agc --all send "Health check?"                       # all registered agents
-agc --format json --all send "Status?" | jq -r '"[\(.agent)] \(.text)"'
 ```
 
-Results are streamed NDJSON, first-done-first, each line includes `agent` and `agent_url`.
+Results are streamed NDJSON, first-done-first, each line includes `agent` and `agent_url`:
+
+```bash
+agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
+```
 
 ## Agent Management
 
@@ -114,45 +125,63 @@ agc auth logout --agent prod
 ## Agent Card
 
 ```bash
-agc card                     # active agent capabilities and auth info
-agc --format json card       # full card as JSON
-agc --all card               # all agents
+agc card                     # public card — capabilities and auth info
+agc extended-card            # authenticated extended card
+agc card --agent prod        # specific agent
+agc card --fields name,skills,capabilities
 ```
 
 ## Task Management
 
 ```bash
-agc task list
-agc task list --status TASK_STATE_WORKING
-agc task get  --id task-abc
-agc task cancel --id task-abc       # confirm with user first!
-agc --all task list                 # across all agents
+agc list-tasks
+agc list-tasks --status working
+agc list-tasks --context-id ctx-abc
+agc get-task  <id>
+agc get-task  <id> --fields status.state
+agc cancel-task <id>          # confirm with user first!
+agc subscribe <id>            # stream live task updates
 ```
 
-## Response Shape (`--format json`)
+## Response Shape
+
+`agc send` and `agc get-task` return a raw A2A **Task** object:
 
 ```json
 {
-  "agent":          "prod",
-  "agent_url":      "https://agent.example.com",
-  "type":           "task_completed",
-  "text":           "The agent's answer — always the primary field",
-  "task_id":        "task-abc123",
-  "context_id":     "ctx-abc123",
-  "state":          "TASK_STATE_COMPLETED",
-  "artifacts":      [{"id": "...", "name": "report.md", "text": "..."}],
-  "input_required": false
+  "id":         "task-abc123",
+  "context_id": "ctx-abc123",
+  "status": {
+    "state":   "completed",
+    "message": {
+      "role":  "agent",
+      "parts": [{ "kind": "text", "text": "The agent's answer" }]
+    }
+  },
+  "artifacts": [],
+  "history":   null
 }
 ```
 
-| `type` | Meaning |
-|--------|---------|
-| `message` | Direct reply |
-| `task_completed` | Finished successfully |
-| `task_failed` | Failed |
-| `task_working` | Still processing — check with `agc task get --id <id>` |
-| `input_required` | Agent needs your reply — use `agc send --task-id <id> "..."` |
-| `error` | Client-side error (auth, network) |
+| `status.state` | Meaning |
+|----------------|---------|
+| `submitted` | Queued, not started |
+| `working` | In progress — poll with `agc get-task <id>` |
+| `completed` | Finished — read `status.message.parts` for the answer |
+| `failed` | Error — read `status.message` for details |
+| `input-required` | Agent needs a reply — use `agc send --task-id <id> "..."` |
+| `canceled` | Canceled |
+
+Multi-agent results include `agent` and `agent_url` at the top level.
+
+## Push Notifications
+
+```bash
+agc push-config create <task-id> <callback-url>
+agc push-config get    <task-id> <config-id>
+agc push-config list   <task-id>
+agc push-config delete <task-id> <config-id>
+```
 
 ## Environment Variables
 
@@ -161,3 +190,9 @@ agc --all task list                 # across all agents
 | `AGC_AGENT_URL` | Default agent alias or URL |
 | `AGC_BEARER_TOKEN` | Static token — bypasses OAuth |
 | `AGC_KEYRING_BACKEND` | `keyring` (default) or `file` (Docker/CI) |
+| `AGC_CLIENT_SECRET` | Client secret for Client Credentials flow |
+
+## See Also
+
+- [`AGENTS.md`](AGENTS.md) — source layout, build/test commands, validation rules, auth patterns
+- [`gws-cli/CONTEXT.md`](gws-cli/CONTEXT.md) — quick reference for the `gws` CLI (shares auth and output patterns with `agc`)

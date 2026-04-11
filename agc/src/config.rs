@@ -114,6 +114,135 @@ impl Config {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_agent(url: &str) -> Agent {
+        Agent {
+            url: url.to_string(),
+            description: String::new(),
+            transport: String::new(),
+            oauth: OAuthConfig::default(),
+        }
+    }
+
+    // ── Config::resolve_agent ─────────────────────────────────────────
+
+    #[test]
+    fn resolve_agent_by_known_alias() {
+        let mut cfg = Config::default();
+        cfg.agents.insert("prod".to_string(), make_agent("https://prod.example.com"));
+        let a = cfg.resolve_agent("prod").unwrap();
+        assert_eq!(a.url, "https://prod.example.com");
+    }
+
+    #[test]
+    fn resolve_agent_by_https_url_returns_inline_agent() {
+        let cfg = Config::default();
+        let a = cfg.resolve_agent("https://example.com/agent").unwrap();
+        assert_eq!(a.url, "https://example.com/agent");
+    }
+
+    #[test]
+    fn resolve_agent_by_http_url() {
+        let cfg = Config::default();
+        let a = cfg.resolve_agent("http://localhost:8080").unwrap();
+        assert_eq!(a.url, "http://localhost:8080");
+    }
+
+    #[test]
+    fn resolve_agent_unknown_alias_returns_none() {
+        let cfg = Config::default();
+        assert!(cfg.resolve_agent("unknown").is_none());
+    }
+
+    // ── Config::active_agent ──────────────────────────────────────────
+
+    #[test]
+    fn active_agent_returns_current() {
+        let mut cfg = Config::default();
+        cfg.current_agent = "prod".to_string();
+        cfg.agents.insert("prod".to_string(), make_agent("https://prod.example.com"));
+        let (alias, agent) = cfg.active_agent().unwrap();
+        assert_eq!(alias, "prod");
+        assert_eq!(agent.url, "https://prod.example.com");
+    }
+
+    #[test]
+    fn active_agent_empty_current_returns_none() {
+        let cfg = Config::default();
+        assert!(cfg.active_agent().is_none());
+    }
+
+    #[test]
+    fn active_agent_alias_missing_from_map_returns_none() {
+        let mut cfg = Config::default();
+        cfg.current_agent = "ghost".to_string();
+        assert!(cfg.active_agent().is_none());
+    }
+
+    // ── OAuthConfig ───────────────────────────────────────────────────
+
+    #[test]
+    fn oauth_config_is_empty_when_default() {
+        assert!(OAuthConfig::default().is_empty());
+    }
+
+    #[test]
+    fn oauth_config_not_empty_with_client_id() {
+        let c = OAuthConfig { client_id: "id".to_string(), scopes: vec![] };
+        assert!(!c.is_empty());
+    }
+
+    #[test]
+    fn oauth_config_not_empty_with_scopes() {
+        let c = OAuthConfig { client_id: String::new(), scopes: vec!["openid".to_string()] };
+        assert!(!c.is_empty());
+    }
+
+    // ── Serde roundtrip ───────────────────────────────────────────────
+
+    #[test]
+    fn config_yaml_roundtrip() {
+        let mut cfg = Config {
+            current_agent: "test".to_string(),
+            agents: HashMap::new(),
+        };
+        cfg.agents.insert(
+            "test".to_string(),
+            Agent {
+                url: "https://example.com".to_string(),
+                description: "Test agent".to_string(),
+                transport: "jsonrpc".to_string(),
+                oauth: OAuthConfig {
+                    client_id: "client".to_string(),
+                    scopes: vec!["openid".to_string(), "email".to_string()],
+                },
+            },
+        );
+
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+
+        assert_eq!(back.current_agent, "test");
+        let agent = back.agents.get("test").unwrap();
+        assert_eq!(agent.url, "https://example.com");
+        assert_eq!(agent.transport, "jsonrpc");
+        assert_eq!(agent.oauth.client_id, "client");
+        assert_eq!(agent.oauth.scopes, ["openid", "email"]);
+    }
+
+    #[test]
+    fn empty_config_roundtrip_omits_empty_fields() {
+        let cfg = Config::default();
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        // Empty config should serialize to minimal YAML (no noise).
+        assert!(!yaml.contains("current_agent"));
+        assert!(!yaml.contains("agents"));
+    }
+}
+
 fn default_config() -> Config {
     let host = env!("AGC_DEFAULT_HOST");
     let mut agents = HashMap::new();

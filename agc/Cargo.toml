@@ -19,6 +19,9 @@ a2a        = { package = "agntcy-a2a",        path = "../a2a-rs/a2a" }
 a2a-client = { package = "agntcy-a2a-client", path = "../a2a-rs/a2a-client" }
 a2acli     = { package = "agntcy-a2acli",     path = "../a2a-rs/a2acli" }
 
+# A2A v0.3 backward-compatibility layer
+a2a-compat = { path = "../a2a-compat" }
+
 # gws-cli library (for validate helpers — is_dangerous_unicode etc.)
 google-workspace = { path = "../gws-cli/crates/google-workspace" }
 
@@ -65,6 +68,9 @@ open = "5"
 # Logging
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+serial_test = "3"
 
 # ── Platform-specific keyring backends ───────────────────────────────
 # Without explicit features, keyring v3 uses an in-process mock (no persistence).

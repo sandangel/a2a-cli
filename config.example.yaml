@@ -2,10 +2,9 @@
 # Run `agc agent use <alias>` to switch the active agent.
 
 current_agent: rover
-current_profile: default
 
 agents:
-  rover-dev:
+  rover:
     url: https://dev.genai.stargate.toyota/a2a/rover-agent
     description: Rover Agent (dev)
     oauth:

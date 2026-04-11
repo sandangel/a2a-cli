@@ -98,9 +98,16 @@ Use agc when you need to:
 ## Quick Start
 
 ```bash
-agc agent list                        # see registered agents
-agc send "Summarise the latest PR"    # send to the active agent
-agc --agent prod send "Status?"       # send to a named agent
+# Set up once
+agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
+agc agent use rover                   # rover is now the active agent
+
+# Send to the active agent — no --agent flag needed
+agc send "Summarise the latest PR"
+agc send "Status?" --fields status.message.parts
+
+# Target a specific agent or all agents
+agc --agent eai send "Status?"        # send to a named agent
 agc --all send "Health check?"        # send to all agents in parallel
 ```
 
@@ -116,15 +123,28 @@ agc agent show [alias]                # details for one agent
 agc agent remove <alias>              # deregister
 ```
 
+Registered agents:
+
+| Alias | URL |
+|-------|-----|
+| `rover` | `https://genai.stargate.toyota/a2a/rover-agent` |
+| `eai` | `https://dev.genai.stargate.toyota/a2a/eai-agent` |
+
+```bash
+agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
+agc agent add eai   https://dev.genai.stargate.toyota/a2a/eai-agent
+agc agent use rover   # set rover as the active agent
+```
+
 ## Authentication
 
 Each agent has its own stored token. The OAuth flow is auto-detected from the agent card.
 
 ```bash
 agc auth login                        # authenticate active agent
-agc auth login --agent prod           # authenticate specific agent
+agc auth login --agent rover          # authenticate specific agent
 agc auth status                       # token status for all agents
-agc auth logout --agent prod          # remove stored token
+agc auth logout --agent rover         # remove stored token
 ```
 
 Set `AGC_BEARER_TOKEN` to bypass OAuth entirely (useful in CI/scripts).
@@ -140,21 +160,30 @@ agc stream "<text>"                               # streaming — prints events 
 
 ## Output
 
-All output is JSON. Use `--fields` to extract specific paths (dot-notation):
+Default output is JSON. Use `--format` to switch to human-readable output; use `--fields` to extract specific paths (AI tools only):
 
 ```bash
-agc send "Hello"                                  # full JSON response
-agc send "Hello" --fields text                    # just the text
-agc send "Hello" --fields id,status.state,text    # multiple fields
-agc send "Hello" --compact                        # single-line JSON
+# Human-readable
+agc send "Hello"                                             # pretty JSON (default)
+agc --format table send "Hello"                             # human-readable table
+agc --format table agent list                               # table of registered agents
+agc --format table auth status                              # table of token statuses
+
+# AI tools — extract specific fields from JSON
+agc send "Hello" --fields status.message.parts              # reply parts (A2A spec path)
+agc send "Hello" --fields id,status.state                   # task ID and state only
+agc send "Hello" --compact                                   # single-line JSON
 ```
+
+The agent's reply is in `status.message.parts` (A2A spec) or `artifacts` (some agents).
+Always check `status.state == "completed"` before reading the reply.
 
 Multi-agent output is NDJSON — one JSON object per line, each tagged with `agent` and `agent_url`.
 
 ## Multi-Agent
 
 ```bash
-agc --agent prod --agent staging send "Deploy status?"   # two specific agents
+agc --agent rover --agent eai send "Deploy status?"   # two specific agents
 agc --all send "Health check?"                           # all registered agents
 ```
 
@@ -165,10 +194,10 @@ Results arrive first-done-first as NDJSON lines.
 Agents run tasks asynchronously. After `send` returns a task ID:
 
 ```bash
-agc task get <id>                     # fetch task by ID
-agc task list                         # list recent tasks
-agc task list --status working        # filter by state
-agc task cancel <id>                  # cancel a running task
+agc get-task <id>                     # fetch task by ID
+agc list-tasks                        # list recent tasks
+agc list-tasks --status working       # filter by state
+agc cancel-task <id>                  # cancel a running task
 agc subscribe <id>                    # stream live task updates (SSE)
 ```
 
@@ -183,8 +212,9 @@ Task states: `submitted` → `working` → `completed` | `failed` | `canceled` |
 | `--bearer-token <token>` | Static token, bypasses OAuth |
 | `--binding jsonrpc\|http-json` | Force transport (default: auto from card) |
 | `--tenant <id>` | Tenant ID forwarded to requests |
-| `--fields <paths>` | Comma-separated field paths to include in output |
-| `--compact` | Compact JSON output (one line) |
+| `--fields <paths>` | Comma-separated dot-notation field paths to include in output (JSON only) |
+| `--format json\|table\|yaml\|csv` | Output format — default `json`; use `table` for human-readable output |
+| `--compact` | Single-line JSON (only applies to `--format json`) |
 
 ## Environment Variables
 
@@ -207,7 +237,7 @@ Before sending, inspect what an agent can do:
 
 ```bash
 agc card                              # fetch active agent's public card
-agc card --agent prod                 # specific agent
+agc card --agent rover                # specific agent
 agc schema skill <skill-id>           # understand a skill to craft the right message
 agc schema task                       # Task response structure
 agc schema send                       # SendMessageRequest structure
@@ -292,30 +322,34 @@ metadata:
 ", skill.description);
 
             // Input/output modes
-            if let Some(modes) = &skill.input_modes {
-                if !modes.is_empty() { let _ = writeln!(s, "- **Input:** {}", modes.join(", ")); }
+            if let Some(modes) = &skill.input_modes
+                && !modes.is_empty()
+            {
+                let _ = writeln!(s, "- **Input:** {}", modes.join(", "));
             }
-            if let Some(modes) = &skill.output_modes {
-                if !modes.is_empty() { let _ = writeln!(s, "- **Output:** {}", modes.join(", ")); }
+            if let Some(modes) = &skill.output_modes
+                && !modes.is_empty()
+            {
+                let _ = writeln!(s, "- **Output:** {}", modes.join(", "));
             }
 
             // Tags
             if !skill.tags.is_empty() { let _ = writeln!(s, "- **Tags:** {}", skill.tags.join(", ")); }
 
             // Skills cannot be invoked by ID — show how to phrase a message for this skill
-            if let Some(examples) = &skill.examples {
-                if !examples.is_empty() {
-                    let _ = writeln!(s, "**Example messages that trigger this skill:**\n");
-                    let _ = writeln!(s, "```bash");
-                    for ex in examples {
-                        let _ = writeln!(s, "agc --agent {alias} send {:?} --fields text", ex);
-                    }
-                    let _ = writeln!(s, "```\n");
+            if let Some(examples) = &skill.examples
+                && !examples.is_empty()
+            {
+                let _ = writeln!(s, "**Example messages that trigger this skill:**\n");
+                let _ = writeln!(s, "```bash");
+                for ex in examples {
+                    let _ = writeln!(s, "agc --agent {alias} send {:?}", ex);
                 }
+                let _ = writeln!(s, "```\n");
             } else {
                 let _ = writeln!(s, "```bash");
                 let _ = writeln!(s, "# Describe what you want — the agent routes to this skill based on message content");
-                let _ = writeln!(s, "agc --agent {alias} send \"<describe what you want>\" --fields text");
+                let _ = writeln!(s, "agc --agent {alias} send \"<describe what you want>\"");
                 let _ = writeln!(s, "```\n");
             }
 
@@ -332,21 +366,24 @@ metadata:
     // Quick examples
     let _ = writeln!(s, "## Examples\n");
     let _ = writeln!(s, "```bash");
-    let _ = writeln!(s, "# Send a message");
+    let _ = writeln!(s, "# Send a message (full JSON response)");
     let _ = writeln!(s, "agc --agent {alias} send \"<your request>\"");
-    let _ = writeln!(s, "");
-    let _ = writeln!(s, "# Get just the text reply");
-    let _ = writeln!(s, "agc --agent {alias} send \"<your request>\" --fields text");
+    let _ = writeln!(s);
+    let _ = writeln!(s, "# Human-readable table output");
+    let _ = writeln!(s, "agc --agent {alias} --format table send \"<your request>\"");
+    let _ = writeln!(s);
+    let _ = writeln!(s, "# AI tools — extract reply parts (A2A spec path)");
+    let _ = writeln!(s, "agc --agent {alias} send \"<your request>\" --fields status.message.parts");
 
     if caps.streaming.unwrap_or(false) {
-        let _ = writeln!(s, "");
+        let _ = writeln!(s);
         let _ = writeln!(s, "# Stream the response");
         let _ = writeln!(s, "agc --agent {alias} stream \"<your request>\"");
     }
 
-    let _ = writeln!(s, "");
+    let _ = writeln!(s);
     let _ = writeln!(s, "# Check task status after sending");
-    let _ = writeln!(s, "agc --agent {alias} task list --status working");
+    let _ = writeln!(s, "agc --agent {alias} list-tasks --status working");
     let _ = writeln!(s, "```");
 
     let _ = writeln!(s, "\n## See Also\n");

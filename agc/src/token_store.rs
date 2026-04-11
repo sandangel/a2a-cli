@@ -37,6 +37,9 @@ pub struct Token {
     pub token_type: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
+    /// Token endpoint URL — stored so we can refresh without re-fetching the agent card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
 }
 
 impl Token {
@@ -189,19 +192,16 @@ fn get_or_create_aes_key() -> anyhow::Result<[u8; 32]> {
     let key_file = config_dir().join(".encryption_key");
 
     // 1. Try keyring.
-    if Backend::from_env() == Backend::Keyring {
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ENC_KEY) {
-            if let Ok(b64) = entry.get_password() {
-                if let Ok(bytes) = base64::Engine::decode(
-                    &base64::engine::general_purpose::STANDARD, b64.trim()
-                ) {
-                    if let Ok(arr) = bytes.try_into() {
-                        let _ = KEY.set(arr);
-                        return Ok(arr);
-                    }
-                }
-            }
-        }
+    if Backend::from_env() == Backend::Keyring
+        && let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ENC_KEY)
+        && let Ok(b64) = entry.get_password()
+        && let Ok(bytes) = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD, b64.trim()
+        )
+        && let Ok(arr) = bytes.try_into()
+    {
+        let _ = KEY.set(arr);
+        return Ok(arr);
     }
 
     // 2. Try key file.
@@ -220,10 +220,10 @@ fn get_or_create_aes_key() -> anyhow::Result<[u8; 32]> {
     OsRng.fill_bytes(&mut key);
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, key);
 
-    if Backend::from_env() == Backend::Keyring {
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ENC_KEY) {
-            let _ = entry.set_password(&b64);
-        }
+    if Backend::from_env() == Backend::Keyring
+        && let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ENC_KEY)
+    {
+        let _ = entry.set_password(&b64);
     }
 
     // Always write file fallback (ensures key survives keyring loss).

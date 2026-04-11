@@ -1,0 +1,27 @@
+[package]
+name = "a2a-compat"
+version = "0.1.0"
+description = "A2A v0.3 backward-compatibility layer for agc"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+# A2A v1 types — normalize_card returns AgentCard
+a2a = { package = "agntcy-a2a", path = "../a2a-rs/a2a" }
+
+# HTTP
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-native-roots"] }
+
+# Async / streaming
+tokio      = { version = "1", features = ["io-util"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures    = "0.3"
+
+# Serialization
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# UUID for JSON-RPC request IDs
+uuid = { version = "1", features = ["v4"] }

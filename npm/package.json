@@ -1,8 +1,26 @@
 {
   "name": "@rover/agent-cli",
-  "version": "0.1.0",
   "description": "A2A CLI — interact with A2A protocol agents from the terminal",
+  "version": "0.1.0",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sg-genai/genai-cli.git"
+  },
+  "homepage": "https://github.com/sg-genai/genai-cli",
+  "bugs": {
+    "url": "https://github.com/sg-genai/genai-cli/issues"
+  },
+  "bin": {
+    "agc": "run.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "preferUnplugged": true,
   "keywords": [
     "a2a",
     "agent2agent",
@@ -10,26 +28,40 @@
     "agent-skills",
     "cli",
     "oauth2",
-    "streaming"
+    "streaming",
+    "rust"
   ],
-  "engines": {
-    "node": ">=18"
+  "publishConfig": {
+    "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release"
   },
-  "bin": {
-    "a2a": "./bin.js"
-  },
-  "scripts": {
-    "postinstall": "node install.js"
-  },
-  "files": [
-    "bin.js",
-    "install.js"
-  ],
-  "optionalDependencies": {
-    "@rover/agent-cli-linux-x64":    "0.1.0",
-    "@rover/agent-cli-linux-arm64":  "0.1.0",
-    "@rover/agent-cli-darwin-x64":   "0.1.0",
-    "@rover/agent-cli-darwin-arm64": "0.1.0",
-    "@rover/agent-cli-win32-x64":    "0.1.0"
+  "supportedPlatforms": {
+    "aarch64-apple-darwin": {
+      "artifact": "agc-aarch64-apple-darwin.tar.gz",
+      "binary": "agc"
+    },
+    "x86_64-apple-darwin": {
+      "artifact": "agc-x86_64-apple-darwin.tar.gz",
+      "binary": "agc"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "artifact": "agc-aarch64-unknown-linux-gnu.tar.gz",
+      "binary": "agc"
+    },
+    "aarch64-unknown-linux-musl": {
+      "artifact": "agc-aarch64-unknown-linux-musl.tar.gz",
+      "binary": "agc"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "artifact": "agc-x86_64-unknown-linux-gnu.tar.gz",
+      "binary": "agc"
+    },
+    "x86_64-unknown-linux-musl": {
+      "artifact": "agc-x86_64-unknown-linux-musl.tar.gz",
+      "binary": "agc"
+    },
+    "x86_64-pc-windows-msvc": {
+      "artifact": "agc-x86_64-pc-windows-msvc.zip",
+      "binary": "agc.exe"
+    }
   }
 }

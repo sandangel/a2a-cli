@@ -1,12 +1,24 @@
 use clap::Subcommand;
 
-use crate::auth::{login, logout, token_status};
+use crate::auth::{login, logout, token_status, TokenStatus};
 use crate::cli::GlobalArgs;
 use crate::client::resolve_target;
 use crate::config::load;
 use crate::error::Result;
-use crate::printer::print_json;
+use crate::printer::{print_json, print_value};
 use crate::runner::fetch_card_raw;
+
+fn status_json(alias: &str, url: &str, s: &TokenStatus) -> serde_json::Value {
+    serde_json::json!({
+        "alias": alias,
+        "url": url,
+        "authenticated": s.authenticated,
+        "expired": s.expired,
+        "expires_at": s.expires_at,
+        "scopes": s.scopes,
+        "access_token": s.masked_token,
+    })
+}
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
@@ -38,15 +50,7 @@ pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
             if args.agent.is_some() {
                 let target = resolve_target(args)?;
                 let s = token_status(&target.url)?;
-                print_json(&serde_json::json!({
-                    "alias": target.alias,
-                    "url": target.url,
-                    "authenticated": s.authenticated,
-                    "expired": s.expired,
-                    "expires_at": s.expires_at,
-                    "scopes": s.scopes,
-                    "access_token": s.masked_token,
-                }), None, false)?;
+                print_value(&status_json(&target.alias, &target.url, &s), args.fields.as_deref(), args.format.clone(), args.compact)?;
             } else {
                 let cfg = load()?;
                 if cfg.agents.is_empty() {
@@ -56,17 +60,9 @@ pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
                 let mut statuses = vec![];
                 for (alias, agent) in &cfg.agents {
                     let s = token_status(&agent.url)?;
-                    statuses.push(serde_json::json!({
-                        "alias": alias,
-                        "url": agent.url,
-                        "authenticated": s.authenticated,
-                        "expired": s.expired,
-                        "expires_at": s.expires_at,
-                        "scopes": s.scopes,
-                        "access_token": s.masked_token,
-                    }));
+                    statuses.push(status_json(alias, &agent.url, &s));
                 }
-                print_json(&serde_json::Value::Array(statuses), None, false)?;
+                print_value(&serde_json::Value::Array(statuses), args.fields.as_deref(), args.format.clone(), args.compact)?;
             }
         }
     }
