@@ -202,7 +202,67 @@ jobs:
           registry-url: 'https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release'
           scope: '@rover'
 
-      - name: Publish to Artifactory npm
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Extract binaries into platform packages
+        run: |
+          VERSION="${{ needs.plan.outputs.version }}"
+
+          # darwin-arm64
+          mkdir -p npm/packages/@rover/agent-cli-darwin-arm64/bin
+          tar xzf artifacts/agc-aarch64-apple-darwin.tar.gz -C npm/packages/@rover/agent-cli-darwin-arm64/bin ./agc
+          chmod +x npm/packages/@rover/agent-cli-darwin-arm64/bin/agc
+
+          # darwin-x64
+          mkdir -p npm/packages/@rover/agent-cli-darwin-x64/bin
+          tar xzf artifacts/agc-x86_64-apple-darwin.tar.gz -C npm/packages/@rover/agent-cli-darwin-x64/bin ./agc
+          chmod +x npm/packages/@rover/agent-cli-darwin-x64/bin/agc
+
+          # linux-arm64 (gnu)
+          mkdir -p npm/packages/@rover/agent-cli-linux-arm64/bin
+          tar xzf artifacts/agc-aarch64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/agent-cli-linux-arm64/bin ./agc
+          chmod +x npm/packages/@rover/agent-cli-linux-arm64/bin/agc
+
+          # linux-x64 (gnu)
+          mkdir -p npm/packages/@rover/agent-cli-linux-x64/bin
+          tar xzf artifacts/agc-x86_64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/agent-cli-linux-x64/bin ./agc
+          chmod +x npm/packages/@rover/agent-cli-linux-x64/bin/agc
+
+          # win32-x64
+          mkdir -p npm/packages/@rover/agent-cli-win32-x64/bin
+          unzip -j artifacts/agc-x86_64-pc-windows-msvc.zip "*/agc.exe" -d npm/packages/@rover/agent-cli-win32-x64/bin/
+
+      - name: Set version in all packages
+        run: |
+          VERSION="${{ needs.plan.outputs.version }}"
+
+          # Bump version field in every package.json
+          for pkg in npm npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
+            npm version --no-git-tag-version --prefix "$pkg" "$VERSION"
+          done
+
+          # Align optionalDependencies in the main package to the same version
+          node -e "
+            const fs = require('fs');
+            const f = 'npm/package.json';
+            const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+            for (const k in pkg.optionalDependencies) pkg.optionalDependencies[k] = process.argv[1];
+            fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+          " "$VERSION"
+
+      - name: Publish platform packages
+        run: |
+          for pkg in npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
+            npm publish "$pkg"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish main package
         working-directory: npm
         run: npm publish
         env:

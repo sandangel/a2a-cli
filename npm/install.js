@@ -1,202 +1,121 @@
 #!/usr/bin/env node
+// install.js — resolves the agc native binary for the current platform.
+//
+// Resolution order:
+//   1. AGC_BINARY_PATH env var (developer override / CI)
+//   2. Platform-specific optional dependency (e.g. @rover/agent-cli-linux-x64)
+//   3. `agc` on PATH (for users who installed the binary separately)
+//
+// Run as postinstall to verify the binary resolves, and exported for bin.js.
 
-"use strict";
+'use strict';
 
-const crypto = require("crypto");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const { pipeline } = require("stream/promises");
-const { createWriteStream, mkdirSync, rmSync } = require("fs");
-const { spawnSync } = require("child_process");
-const { getPlatform } = require("./platform");
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
-const INSTALL_DIR = path.join(__dirname, "bin");
+// Maps Node platform-arch → optional dependency package name.
+const PLATFORM_MAP = {
+  'darwin-arm64': '@rover/agent-cli-darwin-arm64',
+  'darwin-x64':   '@rover/agent-cli-darwin-x64',
+  'linux-arm64':  '@rover/agent-cli-linux-arm64',
+  'linux-x64':    '@rover/agent-cli-linux-x64',
+  'win32-x64':    '@rover/agent-cli-win32-x64',
+};
 
-/**
- * Get the GitHub release download URL base for the current package version.
- */
-function getDownloadUrl(artifactName) {
-  const { version } = require("./package.json");
-  return `https://github.com/sg-genai/genai-cli/releases/download/v${version}/${artifactName}`;
+function platformKey() {
+  return `${os.platform()}-${os.arch()}`;
+}
+
+function binaryName() {
+  return os.platform() === 'win32' ? 'agc.exe' : 'agc';
 }
 
 /**
- * Strip ANSI escape sequences from a string.
+ * Resolve binary from the installed platform-specific optional dependency.
+ * Returns the absolute path, or null if the dep is not installed.
  */
-function sanitize(str) {
-  // eslint-disable-next-line no-control-regex
-  return String(str).replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-}
-
-/**
- * Resolve a GitHub token for downloading from a private repo.
- *
- * Priority:
- *   1. GH_TOKEN env var (set by CI or user)
- *   2. GITHUB_TOKEN env var (set automatically in GitHub Actions)
- *   3. `gh auth token` — reads the token from the local gh CLI session
- *
- * Returns null if no token is found (will attempt unauthenticated download).
- */
-function getGitHubToken() {
-  if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
-
-  // Try the gh CLI
+function resolveFromOptionalDep() {
+  const pkgName = PLATFORM_MAP[platformKey()];
+  if (!pkgName) return null;
   try {
-    const result = spawnSync("gh", ["auth", "token"], {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    if (result.status === 0 && result.stdout) {
-      return result.stdout.trim();
-    }
+    const pkgDir = path.dirname(require.resolve(`${pkgName}/package.json`));
+    const bin = path.join(pkgDir, 'bin', binaryName());
+    if (fs.existsSync(bin)) return bin;
   } catch {
-    // gh not installed or not authenticated — fall through
+    // optional dep not installed — normal when npm skipped it for this platform
   }
-
   return null;
 }
 
 /**
- * Download a file using native fetch (Node 18+).
- *
- * NOTE: Native fetch does not respect HTTP_PROXY / HTTPS_PROXY environment
- * variables. If proxy support is needed, consider using the `undici` ProxyAgent
- * or a Node.js build with proxy support.
+ * Check if `agc` is on PATH and return its absolute path.
  */
-async function download(url, dest) {
-  const token = getGitHubToken();
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await fetch(url, { redirect: "follow", headers });
-
-  if (!res.ok) {
-    throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
-  }
-
-  if (!res.body) {
-    throw new Error(`Failed to download ${url}: Response body is empty`);
-  }
-
-  const fileStream = createWriteStream(dest);
-  // Convert web ReadableStream to Node stream and pipe
-  const { Readable } = require("stream");
-  const nodeStream = Readable.fromWeb(res.body);
-  await pipeline(nodeStream, fileStream);
-}
-
-/**
- * Run a command and throw on failure.
- */
-function run(cmd, args) {
-  const result = spawnSync(cmd, args, { stdio: "pipe" });
-  if (result.error) {
-    throw new Error(`Failed to run ${cmd}: ${result.error.message}`);
-  }
-  if ((result.status ?? 1) !== 0) {
-    const stderr = result.stderr ? result.stderr.toString() : "";
-    throw new Error(
-      `Command failed: ${cmd} ${args.join(" ")}\n${stderr}`,
-    );
-  }
-}
-
-/**
- * Extract the archive to the install directory.
- */
-function extract(archivePath, destDir) {
-  const isZip = archivePath.endsWith(".zip");
-  const isTar = archivePath.includes(".tar.");
-
-  if (isTar) {
-    run("tar", ["xf", archivePath, "-C", destDir]);
-  } else if (isZip) {
-    if (process.platform === "win32") {
-      // Use single-quoted PowerShell strings with doubled single-quote escaping
-      // to safely handle paths containing spaces and special characters.
-      const psArchive = archivePath.replace(/'/g, "''");
-      const psDest = destDir.replace(/'/g, "''");
-      run("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `Expand-Archive -LiteralPath '${psArchive}' -DestinationPath '${psDest}' -Force`,
-      ]);
-    } else {
-      run("unzip", ["-q", "-o", archivePath, "-d", destDir]);
-    }
-  } else {
-    throw new Error(`Unsupported archive format: ${archivePath}`);
-  }
-}
-
-async function install() {
-  const platform = getPlatform();
-  const { version } = require("./package.json");
-  const url = getDownloadUrl(platform.artifact);
-
-  // Check if the correct version is already installed
-  const binPath = path.join(INSTALL_DIR, platform.binary);
-  const versionFile = path.join(INSTALL_DIR, ".version");
-  if (fs.existsSync(binPath) && fs.existsSync(versionFile)) {
-    const installed = fs.readFileSync(versionFile, "utf8").trim();
-    if (installed === version) {
-      console.error(`agc v${version} is already installed, skipping.`);
-      return;
-    }
-    console.error(`Upgrading agc from v${installed} to v${version}`);
-  }
-
-  // Clean and create install directory
-  if (fs.existsSync(INSTALL_DIR)) {
-    rmSync(INSTALL_DIR, { recursive: true, force: true });
-  }
-  mkdirSync(INSTALL_DIR, { recursive: true });
-
-  // Download to a temp file
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agc-"));
-  const archiveName = path.basename(platform.artifact);
-  const tmpFile = path.join(tmpDir, archiveName);
-
+function resolveFromPath() {
   try {
-    console.error(`Downloading agc from ${url}`);
-    await download(url, tmpFile);
+    const which = os.platform() === 'win32' ? 'where' : 'which';
+    const result = execFileSync(which, ['agc'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const bin = result.trim().split('\n')[0];
+    if (bin && fs.existsSync(bin)) return bin;
+  } catch {
+    // not on PATH
+  }
+  return null;
+}
 
-    // Verify SHA256 checksum
-    const sha256Url = `${url}.sha256`;
-    const sha256File = `${tmpFile}.sha256`;
-    console.error(`Verifying checksum from ${sha256Url}`);
-    await download(sha256Url, sha256File);
-
-    const expectedHash = fs.readFileSync(sha256File, "utf8").trim().split(/\s+/)[0].toLowerCase();
-    const fileBuffer = fs.readFileSync(tmpFile);
-    const actualHash = crypto.createHash("sha256").update(fileBuffer).digest("hex").toLowerCase();
-
-    if (actualHash !== expectedHash) {
+/**
+ * Returns the absolute path to the agc binary.
+ * Throws if the binary cannot be found.
+ */
+function getBinaryPath() {
+  // 1. Developer/CI override
+  const envOverride = process.env.AGC_BINARY_PATH;
+  if (envOverride) {
+    if (!fs.existsSync(envOverride)) {
       throw new Error(
-        `SHA256 checksum mismatch!\n  Expected: ${expectedHash}\n  Actual:   ${actualHash}\nThe downloaded binary may have been tampered with.`,
+        `AGC_BINARY_PATH is set to "${envOverride}" but the file does not exist.`
       );
     }
-    console.error("Checksum verified ✓");
+    return envOverride;
+  }
 
-    console.error(`Extracting to ${INSTALL_DIR}`);
-    extract(tmpFile, INSTALL_DIR);
+  // 2. Platform-specific optional dependency (preferred: bundled binary)
+  const fromDep = resolveFromOptionalDep();
+  if (fromDep) return fromDep;
 
-    // Make binary executable on Unix
-    if (process.platform !== "win32") {
-      fs.chmodSync(binPath, 0o755);
+  // 3. PATH fallback
+  const fromPath = resolveFromPath();
+  if (fromPath) return fromPath;
+
+  const platform = platformKey();
+  const supported = Object.keys(PLATFORM_MAP).join(', ');
+  throw new Error(
+    `agc binary not found for platform "${platform}".\n` +
+    `Supported platforms: ${supported}\n\n` +
+    `To fix:\n` +
+    `  • Reinstall:  npm install @rover/agent-cli\n` +
+    `  • Or set:     AGC_BINARY_PATH=/path/to/agc`
+  );
+}
+
+// When run as postinstall: verify the binary resolves and is executable.
+if (require.main === module) {
+  try {
+    const bin = getBinaryPath();
+    if (os.platform() !== 'win32') {
+      try { fs.chmodSync(bin, 0o755); } catch {}
     }
-
-    console.error(`agc v${version} has been installed!`);
-    fs.writeFileSync(versionFile, version);
-  } finally {
-    // Clean up temp files
-    rmSync(tmpDir, { recursive: true, force: true });
+    execFileSync(bin, ['--version'], { stdio: 'pipe' });
+    process.stderr.write(`agc ready: ${bin}\n`);
+  } catch (err) {
+    // Don't fail npm install — the binary may be placed by a later build step.
+    process.stderr.write(`[agc postinstall] warning: ${err.message}\n`);
+    process.exit(0);
   }
 }
 
-install().catch((err) => {
-  console.error(`Error installing agc: ${sanitize(err.message)}`);
-  process.exit(1);
-});
+module.exports = { getBinaryPath };

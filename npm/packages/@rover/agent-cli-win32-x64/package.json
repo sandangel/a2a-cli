@@ -1,0 +1,12 @@
+{
+  "name": "@rover/agent-cli-win32-x64",
+  "version": "0.1.0",
+  "description": "A2A CLI binary for win32/x64",
+  "license": "Apache-2.0",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/"],
+  "publishConfig": {
+    "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release"
+  }
+}

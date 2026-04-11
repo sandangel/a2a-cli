@@ -26,7 +26,7 @@ Use agc when you need to:
 
 ```bash
 # Set up once
-agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
+agc agent add rover https://dev.genai.stargate.toyota/a2a/rover-agent
 agc agent use rover                   # rover is now the active agent
 
 # Send to the active agent — no --agent flag needed
@@ -54,11 +54,11 @@ Registered agents:
 
 | Alias | URL |
 |-------|-----|
-| `rover` | `https://genai.stargate.toyota/a2a/rover-agent` |
+| `rover` | `https://dev.genai.stargate.toyota/a2a/rover-agent` |
 | `eai` | `https://dev.genai.stargate.toyota/a2a/eai-agent` |
 
 ```bash
-agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
+agc agent add rover https://dev.genai.stargate.toyota/a2a/rover-agent
 agc agent add eai   https://dev.genai.stargate.toyota/a2a/eai-agent
 agc agent use rover   # set rover as the active agent
 ```
