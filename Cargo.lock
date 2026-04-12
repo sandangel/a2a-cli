@@ -70,6 +70,7 @@ dependencies = [
  "keyring",
  "oauth2",
  "open",
+ "percent-encoding",
  "prost-reflect",
  "prost-types",
  "protoc-bin-vendored",

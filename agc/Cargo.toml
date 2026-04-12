@@ -49,11 +49,12 @@ anyhow    = "1"
 oauth2 = { version = "4", features = ["reqwest"] }
 
 # Token encryption
-aes-gcm = "0.10"
-rand    = "0.8"
-base64  = { version = "0.22", features = ["std"] }
-zeroize = { version = "1", features = ["derive"] }
-sha2    = "0.10"
+aes-gcm          = "0.10"
+rand             = "0.8"
+base64           = { version = "0.22", features = ["std"] }
+zeroize          = { version = "1", features = ["derive"] }
+sha2             = "0.10"
+percent-encoding = "2.3"
 
 # UUID
 uuid = { version = "1", features = ["v4"] }

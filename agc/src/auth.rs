@@ -210,9 +210,7 @@ pub fn token_status(agent_url: &str) -> Result<TokenStatus> {
     match load_token(agent_url)? {
         None => Ok(TokenStatus { authenticated: false, expired: false, expires_at: None, scopes: vec![], masked_token: None }),
         Some(t) => {
-            let masked = if t.access_token.len() > 8 {
-                Some(format!("{}****{}", &t.access_token[..4], &t.access_token[t.access_token.len()-4..]))
-            } else { Some("****".to_string()) };
+            let masked = Some(mask_token(&t.access_token));
             Ok(TokenStatus {
                 authenticated: !t.is_expired(),
                 expired: t.is_expired(),
@@ -953,12 +951,21 @@ mod refresh_tests {
     }
 }
 
+/// Mask a token for display: show first 4 and last 4 chars, hide the rest.
+/// Uses char-based indexing so multi-byte UTF-8 tokens never cause a panic.
+/// Strings of 8 chars or fewer are fully replaced with `****`.
+fn mask_token(s: &str) -> String {
+    let n = s.chars().count();
+    if n > 8 {
+        let prefix: String = s.chars().take(4).collect();
+        let suffix: String = s.chars().skip(n - 4).collect();
+        format!("{prefix}****{suffix}")
+    } else {
+        "****".to_string()
+    }
+}
+
 fn urlenccode(s: &str) -> String {
-    // Percent-encode each UTF-8 byte (RFC 3986 unreserved chars pass through).
-    s.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-            (b as char).to_string()
-        }
-        _ => format!("%{b:02X}"),
-    }).collect()
+    use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
 }
