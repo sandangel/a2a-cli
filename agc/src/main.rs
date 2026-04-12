@@ -63,7 +63,7 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
             .map(|t| {
                 let explicit_bearer = args.bearer_token.clone();
                 let client_id = t.agent.oauth.client_id.clone();
-                let binding = args.binding;
+                let binding = args.transport;
                 let tenant  = args.tenant.clone();
                 let cmd     = Arc::clone(&command);
                 tokio::spawn(async move {
@@ -89,7 +89,7 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
     let target = resolve_target(args)?;
     let bearer = resolve_bearer(args.bearer_token.clone(), &target.url, &target.agent.oauth.client_id).await;
     let bearer = bearer.as_deref();
-    let binding = args.binding;
+    let binding = args.transport;
     let tenant  = args.tenant.as_deref();
 
     if is_streaming(&command) {

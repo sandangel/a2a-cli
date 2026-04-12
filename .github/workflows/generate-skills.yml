@@ -1,11 +1,11 @@
 name: Generate Skills
 
 # Auto-updates SKILL.md files whenever:
-#   1. CLI code changes (Go source) — skill content drifts from --help output
-#   2. Agent cards change (hourly) — agent skill descriptions drift
+#   1. CLI source changes — skill content may drift from command output
+#   2. Agent cards change (hourly) — per-agent skill descriptions drift
 #   3. Manual trigger
 #
-# agc-shared is derived from cobra metadata (same source as --help).
+# skills/agc/SKILL.md is derived from the binary's built-in content.
 # Any flag/command/description change is reflected on next run — no manual edit needed.
 
 on:
@@ -13,9 +13,7 @@ on:
     branches-ignore:
       - main
     paths:
-      - "internal/cli/*.go"
-      - "internal/output/*.go"
-      - "cmd/agc/*.go"
+      - "agc/src/**"
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
@@ -23,6 +21,9 @@ on:
 concurrency:
   group: generate-skills-${{ github.ref_name }}
   cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   generate:
@@ -32,18 +33,23 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ github.head_ref || github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          submodules: false
 
-      - uses: actions/setup-go@v5
+      - name: Checkout submodules (SSH → HTTPS)
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          go-version-file: go.mod
-          cache: true
+          rustflags: ""  # skill generation shouldn't fail on warnings
 
       - name: Build agc
-        run: go build -o bin/agc ./cmd/agc/
+        run: cargo build -p agc
 
       - name: Register agents (from ROVER_AGENTS_JSON repo variable)
         env:
@@ -52,12 +58,12 @@ jobs:
           [ -z "$ROVER_AGENTS_JSON" ] && exit 0
           echo "$ROVER_AGENTS_JSON" | jq -r '.[] | "\(.alias) \(.url) \(.description // "")"' | \
             while IFS=' ' read -r alias url desc; do
-              [ -n "$desc" ] && ./bin/agc agent add "$alias" "$url" --description "$desc" \
-                             || ./bin/agc agent add "$alias" "$url"
+              [ -n "$desc" ] && ./target/debug/agc agent add "$alias" "$url" --description "$desc" \
+                             || ./target/debug/agc agent add "$alias" "$url"
             done
 
       - name: Generate skills
-        run: ./bin/agc generate-skills --output-dir skills/
+        run: ./target/debug/agc generate-skills
 
       - name: Check for changes
         id: diff

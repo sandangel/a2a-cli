@@ -8,6 +8,9 @@ pub use a2acli::{
     ListTasksCommand,
 };
 
+/// Re-export `Binding` under the user-facing name used in `--transport`.
+pub type Transport = Binding;
+
 use crate::commands::{
     agent::AgentCommand, auth::AuthCommand, config::ConfigCommand,
     generate_skills::GenerateSkillsCommand, schema::SchemaCommand,
@@ -43,7 +46,7 @@ pub struct GlobalArgs {
 
     /// Preferred transport: jsonrpc or http-json (default: auto from agent card)
     #[arg(long, global = true, value_enum)]
-    pub binding: Option<Binding>,
+    pub transport: Option<Transport>,
 
     /// Optional tenant forwarded to A2A requests
     #[arg(long, global = true)]

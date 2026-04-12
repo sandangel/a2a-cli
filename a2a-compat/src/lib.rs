@@ -235,6 +235,19 @@ pub struct MessageParams {
     pub tenant: Option<String>,
 }
 
+impl From<(&a2acli::MessageCommand, Option<&str>)> for MessageParams {
+    fn from((cmd, tenant): (&a2acli::MessageCommand, Option<&str>)) -> Self {
+        Self {
+            text: cmd.text.clone(),
+            context_id: cmd.context_id.clone(),
+            task_id: cmd.task_id.clone(),
+            history_length: cmd.history_length,
+            return_immediately: cmd.return_immediately,
+            tenant: tenant.map(str::to_string),
+        }
+    }
+}
+
 impl MessageParams {
     fn to_json(&self) -> Value {
         serde_json::json!({
@@ -734,7 +747,7 @@ mod tests {
         let mut raw = minimal_v03_json("https://example.com/rpc");
         raw["supportsAuthenticatedExtendedCard"] = serde_json::json!(true);
         let card = normalize_card(&raw).unwrap();
-        assert!(card.capabilities.extended_agent_card);
+        assert_eq!(card.capabilities.extended_agent_card, Some(true));
     }
 
     #[test]
@@ -744,6 +757,6 @@ mod tests {
         raw["supportsAuthenticatedExtendedCard"] = serde_json::json!(true);
         raw["capabilities"] = serde_json::json!({ "extendedAgentCard": true });
         let card = normalize_card(&raw).unwrap();
-        assert!(card.capabilities.extended_agent_card);
+        assert_eq!(card.capabilities.extended_agent_card, Some(true));
     }
 }

@@ -2,6 +2,8 @@
 name: m09-domain
 description: "CRITICAL: Use for domain modeling. Triggers: domain model, DDD, domain-driven design, entity, value object, aggregate, repository pattern, business rules, validation, invariant, 领域模型, 领域驱动设计, 业务规则"
 user-invocable: false
+metadata:
+  internal: true
 ---
 
 # Domain Modeling

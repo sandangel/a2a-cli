@@ -81,11 +81,10 @@ agc send "Long job" --return-immediately
 ## Schema — Inspect Data Structures
 
 ```bash
-agc schema send      # SendMessageRequest flags and fields
-agc schema task      # Task + state machine + useful field paths
-agc schema card      # AgentCard structure
+agc schema send      # SendMessageRequest JSON Schema
+agc schema task      # Task JSON Schema
+agc schema card      # AgentCard JSON Schema
 
-agc schema skill <id>   # input/output schema for a specific skill (fetched live)
 ```
 
 ## Multi-Agent (Parallel)

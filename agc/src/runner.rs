@@ -39,14 +39,36 @@ pub async fn run_to_value(
     let raw = fetch_card_raw(base_url, bearer).await?;
 
     if a2a_compat::is_v03(&raw) {
-        let url = a2a_compat::rpc_url_from_card(&raw, base_url);
         // Card commands: return the already-fetched raw card (avoids a second fetch).
         if matches!(command, Command::Card | Command::ExtendedCard) {
             return Ok(raw);
         }
-        let transport = a2a_compat::transport_from_card(&raw);
-        let client = a2a_compat::Client::new(url, bearer, transport)?;
-        return dispatch_v03(&client, command, tenant).await;
+        let url = a2a_compat::rpc_url_from_card(&raw, base_url);
+        let client = a2a_compat::Client::new(url, bearer, a2a_compat::transport_from_card(&raw))?;
+        return match command {
+            Command::Send(cmd) => {
+                client.send_message(&MessageParams::from((cmd, tenant))).await
+            }
+            Command::GetTask(cmd) => client.get_task(&cmd.id, cmd.history_length).await,
+            Command::ListTasks(cmd) => {
+                client
+                    .list_tasks(cmd.context_id.as_deref(), cmd.page_size, cmd.page_token.as_deref())
+                    .await
+            }
+            Command::CancelTask(cmd) => client.cancel_task(&cmd.id).await,
+            Command::PushConfig { .. } => Err(a2a_compat::V03Error::Unsupported(
+                "push-config not supported for v0.3 agents",
+            )),
+            Command::Stream(_) | Command::Subscribe(_) => Err(a2a_compat::V03Error::Unsupported(
+                "use run_streaming() for streaming commands",
+            )),
+            Command::Card | Command::ExtendedCard => unreachable!("handled above"),
+            Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
+            | Command::Schema { .. } | Command::GenerateSkills(_) => {
+                unreachable!("management commands handled before runner")
+            }
+        }
+        .map_err(AgcError::V03);
     }
 
     let card = parse_card_from_raw(&raw)?;
@@ -138,9 +160,17 @@ pub async fn run_streaming(
 
     if a2a_compat::is_v03(&raw) {
         let url = a2a_compat::rpc_url_from_card(&raw, base_url);
-        let transport = a2a_compat::transport_from_card(&raw);
-        let client = a2a_compat::Client::new(url, bearer, transport)?;
-        return dispatch_v03_streaming(&client, command, tenant, on_event).await;
+        let client = a2a_compat::Client::new(url, bearer, a2a_compat::transport_from_card(&raw))?;
+        match command {
+            Command::Stream(cmd) => {
+                client.stream_message(&MessageParams::from((cmd, tenant)), on_event).await?;
+            }
+            Command::Subscribe(cmd) => {
+                client.subscribe(&cmd.id, on_event).await?;
+            }
+            _ => return Err(AgcError::InvalidInput("not a streaming command".to_string())),
+        }
+        return Ok(());
     }
 
     let card = parse_card_from_raw(&raw)?;
@@ -185,83 +215,6 @@ pub async fn run_streaming(
 
 pub fn is_streaming(command: &Command) -> bool {
     matches!(command, Command::Stream(_) | Command::Subscribe(_))
-}
-
-// ── v0.3 dispatch ─────────────────────────────────────────────────────
-
-/// Dispatch a non-streaming command to an A2A v0.3 agent.
-async fn dispatch_v03(
-    client: &a2a_compat::Client,
-    command: &Command,
-    tenant: Option<&str>,
-) -> Result<Value> {
-    match command {
-        Command::Send(cmd) => {
-            let params = msg_params(cmd, tenant);
-            client.send_message(&params).await.map_err(AgcError::V03)
-        }
-        Command::GetTask(cmd) => client
-            .get_task(&cmd.id, cmd.history_length)
-            .await
-            .map_err(AgcError::V03),
-        Command::ListTasks(cmd) => client
-            .list_tasks(
-                cmd.context_id.as_deref(),
-                cmd.page_size,
-                cmd.page_token.as_deref(),
-            )
-            .await
-            .map_err(AgcError::V03),
-        Command::CancelTask(cmd) => {
-            client.cancel_task(&cmd.id).await.map_err(AgcError::V03)
-        }
-        Command::PushConfig { .. } => Err(AgcError::InvalidInput(
-            "push-config not supported for v0.3 agents".to_string(),
-        )),
-        Command::Stream(_) | Command::Subscribe(_) => Err(AgcError::InvalidInput(
-            "use run_streaming() for streaming commands".to_string(),
-        )),
-        // Card/ExtendedCard handled before calling this function.
-        Command::Card | Command::ExtendedCard => {
-            unreachable!("card commands handled before dispatch_v03")
-        }
-        Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
-        | Command::Schema { .. } | Command::GenerateSkills(_) => {
-            unreachable!("management commands handled before runner")
-        }
-    }
-}
-
-/// Dispatch a streaming command to an A2A v0.3 agent.
-async fn dispatch_v03_streaming(
-    client: &a2a_compat::Client,
-    command: &Command,
-    tenant: Option<&str>,
-    on_event: impl FnMut(Value) -> Result<()>,
-) -> Result<()> {
-    match command {
-        Command::Stream(cmd) => {
-            let params = msg_params(cmd, tenant);
-            client.stream_message(&params, on_event).await?;
-        }
-        Command::Subscribe(cmd) => {
-            client.subscribe(&cmd.id, on_event).await?;
-        }
-        _ => return Err(AgcError::InvalidInput("not a streaming command".to_string())),
-    }
-    Ok(())
-}
-
-/// Build [`MessageParams`] from a CLI [`MessageCommand`] and optional tenant.
-fn msg_params(cmd: &MessageCommand, tenant: Option<&str>) -> MessageParams {
-    MessageParams {
-        text: cmd.text.clone(),
-        context_id: cmd.context_id.clone(),
-        task_id: cmd.task_id.clone(),
-        history_length: cmd.history_length,
-        return_immediately: cmd.return_immediately,
-        tenant: tenant.map(str::to_string),
-    }
 }
 
 // ── Push config (v1 only) ─────────────────────────────────────────────

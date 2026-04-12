@@ -41,10 +41,11 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 | `agc subscribe <id>` | Subscribe to live task updates (streaming) |
 | `agc push-config create/get/list/delete` | Manage push notification configs |
 | `agc agent add/use/list/remove/show/update` | Named agent alias registry |
+| `agc agent generate-skills [alias...]` | Generate `skills/<alias>/SKILL.md` from live agent card |
 | `agc auth login/logout/status` | Per-agent OAuth flows |
-| `agc schema send/task/card/skill <id>` | Inspect A2A protocol types and live skill schemas |
+| `agc schema send/task/card` | Inspect A2A protocol types (JSON Schema generated from proto) |
 | `agc config show` | Show CLI configuration |
-| `agc generate-skills` | Regenerate `skills/` from live agent cards |
+| `agc generate-skills` | Regenerate `skills/agc/SKILL.md` — agc CLI reference for LLMs |
 
 ### Global Flags
 
@@ -55,7 +56,7 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`; use `table` for human-readable) |
 | `--compact` | Single-line JSON (only with `--format json`) |
 | `--fields a,b.c` | Filter output to dot-notation field paths (`--format json` only; AI tools) |
-| `--binding jsonrpc\|http-json` | Override transport (default: auto from agent card) |
+| `--transport jsonrpc|http-json` | Override transport (default: auto from agent card) |
 | `--tenant <id>` | Optional tenant ID forwarded to A2A requests |
 | `--bearer-token <token>` | Static bearer token, bypasses OAuth |
 
@@ -134,17 +135,11 @@ The Rust A2A SDK lives in `a2a-rs/` (git submodule, read-only). Key path depende
 
 ## Skills
 
-Skills are SKILL.md files that teach AI coding tools how to use `agc`:
-
-- `skills/agc-shared/SKILL.md` — static reference: agent registration, auth, send, output format
-- `skills/agc-agent-<alias>/SKILL.md` — dynamic: generated from live agent card
-
-The committed lock file `skills-lock.json` tracks the expected skill content checksums.
+`skills/agc/SKILL.md` teaches AI coding tools how to use the `agc` CLI — commands, flags, response structure, security rules.
 
 Regenerate with:
 ```bash
-agc generate-skills               # all registered agents
-agc generate-skills prod staging  # specific aliases only
+agc generate-skills
 ```
 
 CI auto-regenerates on push via `.github/workflows/generate-skills.yml`.

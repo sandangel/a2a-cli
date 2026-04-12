@@ -5,7 +5,7 @@ use crate::cli::GlobalArgs;
 use crate::client::resolve_target;
 use crate::config::load;
 use crate::error::Result;
-use crate::printer::{print_json, print_value};
+use crate::printer::print_value;
 use crate::runner::fetch_card_raw;
 
 fn status_json(alias: &str, url: &str, s: &TokenStatus) -> serde_json::Value {
@@ -38,19 +38,27 @@ pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
 
             match login(&target.url, &target.agent, &card).await? {
                 Some(_) => eprintln!("Authenticated with {:?} ({})", target.alias, target.url),
-                None    => eprintln!("Agent {} does not require authentication.", target.url),
+                None => eprintln!("Agent {} does not require authentication.", target.url),
             }
         }
         AuthCommand::Logout => {
             let target = resolve_target(args)?;
             logout(&target.url)?;
-            eprintln!("Credentials removed for {:?} ({})", target.alias, target.url);
+            eprintln!(
+                "Credentials removed for {:?} ({})",
+                target.alias, target.url
+            );
         }
         AuthCommand::Status => {
             if args.agent.is_some() {
                 let target = resolve_target(args)?;
                 let s = token_status(&target.url)?;
-                print_value(&status_json(&target.alias, &target.url, &s), args.fields.as_deref(), args.format.clone(), args.compact)?;
+                print_value(
+                    &status_json(&target.alias, &target.url, &s),
+                    args.fields.as_deref(),
+                    args.format.clone(),
+                    args.compact,
+                )?;
             } else {
                 let cfg = load()?;
                 if cfg.agents.is_empty() {
@@ -62,7 +70,12 @@ pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
                     let s = token_status(&agent.url)?;
                     statuses.push(status_json(alias, &agent.url, &s));
                 }
-                print_value(&serde_json::Value::Array(statuses), args.fields.as_deref(), args.format.clone(), args.compact)?;
+                print_value(
+                    &serde_json::Value::Array(statuses),
+                    args.fields.as_deref(),
+                    args.format.clone(),
+                    args.compact,
+                )?;
             }
         }
     }

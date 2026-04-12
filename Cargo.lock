@@ -7,6 +7,7 @@ name = "a2a-compat"
 version = "0.1.0"
 dependencies = [
  "agntcy-a2a",
+ "agntcy-a2acli",
  "futures",
  "reqwest 0.12.28",
  "serde_json",
@@ -69,6 +70,9 @@ dependencies = [
  "keyring",
  "oauth2",
  "open",
+ "prost-reflect",
+ "prost-types",
+ "protoc-bin-vendored",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "serde",
@@ -1837,6 +1841,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5edd582b62f5cde844716e66d92565d7faf7ab1445c8cebce6e00fba83ddb2"
+dependencies = [
+ "once_cell",
+ "prost",
+ "prost-types",
 ]
 
 [[package]]

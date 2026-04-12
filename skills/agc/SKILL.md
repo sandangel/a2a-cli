@@ -1,40 +1,8 @@
-//! `agc generate-skills` — generate SKILL.md for AI coding tools.
-//!
-//! Outputs:
-//!   skills/agc/SKILL.md  — complete agc CLI reference for LLMs
-
-use std::path::Path;
-
-use clap::Args;
-
-use crate::error::{AgcError, Result};
-
-#[derive(Debug, Args)]
-pub struct GenerateSkillsCommand {}
-
-pub async fn run_generate_skills(_cmd: &GenerateSkillsCommand) -> Result<()> {
-    write_skill("skills/agc/SKILL.md", &agc_skill())?;
-    eprintln!("wrote skills/agc/SKILL.md");
-    Ok(())
-}
-
-fn write_skill(path: &str, content: &str) -> Result<()> {
-    let p = Path::new(path);
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(AgcError::Io)?;
-    }
-    std::fs::write(p, content).map_err(AgcError::Io)
-}
-
-// ── Skill content ─────────────────────────────────────────────────────
-
-fn agc_skill() -> String {
-    let version = env!("CARGO_PKG_VERSION");
-    format!(r#"---
+---
 name: agc
 description: "agc: A2A protocol CLI for sending messages to AI agents from coding tools."
 metadata:
-  version: {version}
+  version: 0.1.0
   openclaw:
     category: agent-cli
     requires:
@@ -77,17 +45,17 @@ agc send "Summarise this PR" --fields status.state,status.message.parts
 
 **Response shape:**
 ```json
-{{
+{
   "id": "task-abc123",
   "contextId": "ctx-abc123",
-  "status": {{
+  "status": {
     "state": "TASK_STATE_COMPLETED",
-    "message": {{
+    "message": {
       "role": "ROLE_AGENT",
-      "parts": [{{"text": "The agent's answer"}}]
-    }}
-  }}
-}}
+      "parts": [{"text": "The agent's answer"}]
+    }
+  }
+}
 ```
 
 | `status.state` | Meaning | Action |
@@ -232,5 +200,3 @@ agc schema card   # AgentCard JSON Schema
 - **Confirm with user** before running `agc cancel-task` — it is destructive
 - Only use `http://` or `https://` URLs with `agc agent add`
 - Prefer `--agent <alias>` over raw URLs to avoid prompt-injection via URLs
-"#)
-}
