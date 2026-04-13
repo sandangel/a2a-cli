@@ -1,0 +1,127 @@
+# agc — Agent CLI
+
+`agc` is a CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/).
+Designed to be used by humans and AI coding tools alike.
+
+## Install
+
+### npm (recommended)
+
+```bash
+npm install -g @rover/agent-cli
+```
+
+### Direct download
+
+Download a pre-built binary from the [Releases](https://github.com/sg-genai/genai-cli/releases) page.
+
+```bash
+# Example: Linux x86_64
+curl -sLO https://github.com/sg-genai/genai-cli/releases/latest/download/agc-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf agc-x86_64-unknown-linux-gnu.tar.gz
+chmod +x agc && sudo mv agc /usr/local/bin/
+```
+
+### Build from source
+
+Requires Rust 1.85+.
+
+```bash
+git clone https://github.com/sg-genai/genai-cli.git
+cd genai-cli
+cargo build -p agc --release
+# binary: target/release/agc
+```
+
+## Quick start
+
+```bash
+# Register an agent
+agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
+agc agent use rover
+
+# Authenticate
+agc auth login
+
+# Send a message
+agc send "Hello, agent!"
+
+# Get just the reply text
+agc send "What is 2+2?" --fields status.message.parts
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `agc send` | Send a message and wait for a response |
+| `agc stream` | Send a message and stream events as they arrive |
+| `agc card` | Fetch the public agent card |
+| `agc extended-card` | Fetch the authenticated extended agent card |
+| `agc get-task <id>` | Fetch a task by ID |
+| `agc list-tasks` | List tasks with optional filters |
+| `agc cancel-task <id>` | Cancel a running task |
+| `agc subscribe <id>` | Subscribe to live task updates |
+| `agc agent add/use/list/remove/show/update` | Manage named agent aliases |
+| `agc auth login/logout/status` | Per-agent OAuth flows |
+| `agc push-config create/get/list/delete` | Manage push notification configs |
+| `agc schema send/task/card` | Inspect A2A protocol types |
+| `agc config show` | Show CLI configuration |
+
+## Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--agent <alias\|url>` | Target agent (repeatable for multi-agent) |
+| `--all` | All registered agents in parallel |
+| `--format json\|table\|yaml\|csv` | Output format (default: `json`) |
+| `--compact` | Single-line JSON |
+| `--fields a,b.c` | Filter output to dot-notation field paths |
+
+## Output
+
+```bash
+# Human-readable
+agc --format table agent list
+agc --format table auth status
+
+# AI tools — extract just what you need
+agc send "Hello" --fields status.message.parts
+agc send "Hello" --compact
+```
+
+Multi-agent output is always NDJSON, each line tagged with `agent` and `agent_url`:
+
+```bash
+agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
+```
+
+## Authentication
+
+Each agent alias has its own OAuth config. Tokens are stored in the OS keychain
+(`agc` service, keyed by hostname). Use `AGC_KEYRING_BACKEND=file` for
+headless / Docker environments.
+
+```bash
+agc auth login               # active agent
+agc auth login --agent prod  # specific agent
+agc auth status              # all agents
+agc auth logout --agent prod
+```
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `AGC_AGENT_URL` | Default agent alias or URL |
+| `AGC_BEARER_TOKEN` | Static token — bypasses OAuth |
+| `AGC_KEYRING_BACKEND` | `keyring` (default) or `file` |
+| `AGC_CLIENT_SECRET` | Client secret for Client Credentials flow |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).
