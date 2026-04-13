@@ -34,3 +34,6 @@ jobs:
 
       - name: Rustfmt
         uses: actions-rust-lang/rustfmt@v1
+
+      - name: YAML validation
+        run: uvx pre-commit run check-yaml --all-files
