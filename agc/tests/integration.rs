@@ -2,6 +2,7 @@ mod common;
 
 use a2acli::{TaskIdCommand, TaskLookupCommand};
 use agc::cli::Command;
+use agc::commands::task::TaskCommand;
 use agc::runner::run_to_value;
 use common::{MockServer, MockVariant, run_send, run_send_with_ctx};
 
@@ -14,17 +15,21 @@ async fn run_card(base_url: &str) -> serde_json::Value {
 }
 
 async fn run_get_task(id: &str, base_url: &str) -> serde_json::Value {
-    let cmd = Command::GetTask(TaskLookupCommand {
-        id: id.to_string(),
-        history_length: None,
-    });
+    let cmd = Command::Task {
+        command: TaskCommand::Get(TaskLookupCommand {
+            id: id.to_string(),
+            history_length: None,
+        }),
+    };
     run_to_value(&cmd, base_url, None, None, None)
         .await
         .expect("run_get_task failed")
 }
 
 async fn run_cancel_task(id: &str, base_url: &str) -> serde_json::Value {
-    let cmd = Command::CancelTask(TaskIdCommand { id: id.to_string() });
+    let cmd = Command::Task {
+        command: TaskCommand::Cancel(TaskIdCommand { id: id.to_string() }),
+    };
     run_to_value(&cmd, base_url, None, None, None)
         .await
         .expect("run_cancel_task failed")
@@ -147,14 +152,16 @@ mod v03_jsonrpc {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn list_tasks_returns_unsupported_error() {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
-        let cmd = Command::ListTasks(a2acli::ListTasksCommand {
-            context_id: None,
-            status: None,
-            page_size: None,
-            page_token: None,
-            history_length: None,
-            include_artifacts: false,
-        });
+        let cmd = Command::Task {
+            command: TaskCommand::List(a2acli::ListTasksCommand {
+                context_id: None,
+                status: None,
+                page_size: None,
+                page_token: None,
+                history_length: None,
+                include_artifacts: false,
+            }),
+        };
         let result = run_to_value(&cmd, &server.base_url, None, None, None).await;
         assert!(
             result.is_err(),
@@ -224,14 +231,16 @@ mod v03_rest {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn list_tasks_returns_tasks_array() {
         let server = MockServer::start(MockVariant::V03Rest).await;
-        let cmd = Command::ListTasks(a2acli::ListTasksCommand {
-            context_id: None,
-            status: None,
-            page_size: None,
-            page_token: None,
-            history_length: None,
-            include_artifacts: false,
-        });
+        let cmd = Command::Task {
+            command: TaskCommand::List(a2acli::ListTasksCommand {
+                context_id: None,
+                status: None,
+                page_size: None,
+                page_token: None,
+                history_length: None,
+                include_artifacts: false,
+            }),
+        };
         let result = run_to_value(&cmd, &server.base_url, None, None, None)
             .await
             .expect("list_tasks failed");

@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use crate::cli::Command;
+use crate::commands::task::TaskCommand;
 use a2a::{
     AgentCard, AuthenticationInfo, CreateTaskPushNotificationConfigRequest,
     DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
@@ -50,21 +51,26 @@ pub async fn run_to_value(
                     .send_message(&MessageParams::from((cmd, tenant)))
                     .await
             }
-            Command::GetTask(cmd) => client.get_task(&cmd.id, cmd.history_length).await,
-            Command::ListTasks(cmd) => {
-                client
-                    .list_tasks(
-                        cmd.context_id.as_deref(),
-                        cmd.page_size,
-                        cmd.page_token.as_deref(),
-                    )
-                    .await
-            }
-            Command::CancelTask(cmd) => client.cancel_task(&cmd.id).await,
+            Command::Task { command } => match command {
+                TaskCommand::Get(cmd) => client.get_task(&cmd.id, cmd.history_length).await,
+                TaskCommand::List(cmd) => {
+                    client
+                        .list_tasks(
+                            cmd.context_id.as_deref(),
+                            cmd.page_size,
+                            cmd.page_token.as_deref(),
+                        )
+                        .await
+                }
+                TaskCommand::Cancel(cmd) => client.cancel_task(&cmd.id).await,
+                TaskCommand::Subscribe(_) => Err(a2a_compat::V03Error::Unsupported(
+                    "use run_streaming() for streaming commands",
+                )),
+            },
             Command::PushConfig { .. } => Err(a2a_compat::V03Error::Unsupported(
                 "push-config not supported for v0.3 agents",
             )),
-            Command::Stream(_) | Command::Subscribe(_) => Err(a2a_compat::V03Error::Unsupported(
+            Command::Stream(_) => Err(a2a_compat::V03Error::Unsupported(
                 "use run_streaming() for streaming commands",
             )),
             Command::Card | Command::ExtendedCard => unreachable!("handled above"),
@@ -100,46 +106,51 @@ pub async fn run_to_value(
             let resp = finish(client, result).await?;
             Ok(serde_json::to_value(&resp)?)
         }
-        Command::GetTask(cmd) => {
+        Command::Task { command } => {
             let client = build_client_from_card(&card, bearer, binding).await?;
-            let result = client
-                .get_task(&GetTaskRequest {
-                    id: cmd.id.clone(),
-                    history_length: cmd.history_length,
-                    tenant: tenant.map(str::to_string),
-                })
-                .await;
-            let task = finish(client, result).await?;
-            Ok(serde_json::to_value(&task)?)
-        }
-        Command::ListTasks(cmd) => {
-            let client = build_client_from_card(&card, bearer, binding).await?;
-            let result = client
-                .list_tasks(&ListTasksRequest {
-                    context_id: cmd.context_id.clone(),
-                    status: cmd.status.map(TaskState::from),
-                    page_size: cmd.page_size,
-                    page_token: cmd.page_token.clone(),
-                    history_length: cmd.history_length,
-                    include_artifacts: cmd.include_artifacts.then_some(true),
-                    status_timestamp_after: None,
-                    tenant: tenant.map(str::to_string),
-                })
-                .await;
-            let resp = finish(client, result).await?;
-            Ok(serde_json::to_value(&resp)?)
-        }
-        Command::CancelTask(cmd) => {
-            let client = build_client_from_card(&card, bearer, binding).await?;
-            let result = client
-                .cancel_task(&a2a::CancelTaskRequest {
-                    id: cmd.id.clone(),
-                    metadata: None,
-                    tenant: tenant.map(str::to_string),
-                })
-                .await;
-            let task = finish(client, result).await?;
-            Ok(serde_json::to_value(&task)?)
+            match command {
+                TaskCommand::Get(cmd) => {
+                    let result = client
+                        .get_task(&GetTaskRequest {
+                            id: cmd.id.clone(),
+                            history_length: cmd.history_length,
+                            tenant: tenant.map(str::to_string),
+                        })
+                        .await;
+                    let task = finish(client, result).await?;
+                    Ok(serde_json::to_value(&task)?)
+                }
+                TaskCommand::List(cmd) => {
+                    let result = client
+                        .list_tasks(&ListTasksRequest {
+                            context_id: cmd.context_id.clone(),
+                            status: cmd.status.map(TaskState::from),
+                            page_size: cmd.page_size,
+                            page_token: cmd.page_token.clone(),
+                            history_length: cmd.history_length,
+                            include_artifacts: cmd.include_artifacts.then_some(true),
+                            status_timestamp_after: None,
+                            tenant: tenant.map(str::to_string),
+                        })
+                        .await;
+                    let resp = finish(client, result).await?;
+                    Ok(serde_json::to_value(&resp)?)
+                }
+                TaskCommand::Cancel(cmd) => {
+                    let result = client
+                        .cancel_task(&a2a::CancelTaskRequest {
+                            id: cmd.id.clone(),
+                            metadata: None,
+                            tenant: tenant.map(str::to_string),
+                        })
+                        .await;
+                    let task = finish(client, result).await?;
+                    Ok(serde_json::to_value(&task)?)
+                }
+                TaskCommand::Subscribe(_) => Err(AgcError::InvalidInput(
+                    "use run_streaming() for streaming commands".to_string(),
+                )),
+            }
         }
         Command::PushConfig { command } => {
             run_push_to_value(command, &card, bearer, binding, tenant).await
@@ -152,7 +163,7 @@ pub async fn run_to_value(
         | Command::GenerateSkills(_) => {
             unreachable!("management commands handled before runner")
         }
-        Command::Stream(_) | Command::Subscribe(_) => Err(AgcError::InvalidInput(
+        Command::Stream(_) => Err(AgcError::InvalidInput(
             "use run_streaming() for streaming commands".to_string(),
         )),
     }
@@ -178,7 +189,9 @@ pub async fn run_streaming(
                     .stream_message(&MessageParams::from((cmd, tenant)), on_event)
                     .await?;
             }
-            Command::Subscribe(cmd) => {
+            Command::Task {
+                command: TaskCommand::Subscribe(cmd),
+            } => {
                 client.subscribe(&cmd.id, on_event).await?;
             }
             _ => {
@@ -208,7 +221,9 @@ pub async fn run_streaming(
             }
             let _ = client.destroy().await;
         }
-        Command::Subscribe(cmd) => {
+        Command::Task {
+            command: TaskCommand::Subscribe(cmd),
+        } => {
             let client = build_client_from_card(&card, bearer, binding).await?;
             let mut stream = client
                 .subscribe_to_task(&SubscribeToTaskRequest {
@@ -235,7 +250,13 @@ pub async fn run_streaming(
 }
 
 pub fn is_streaming(command: &Command) -> bool {
-    matches!(command, Command::Stream(_) | Command::Subscribe(_))
+    matches!(
+        command,
+        Command::Stream(_)
+            | Command::Task {
+                command: TaskCommand::Subscribe(_)
+            }
+    )
 }
 
 // ── Push config (v1 only) ─────────────────────────────────────────────
@@ -443,9 +464,11 @@ mod tests {
 
     #[test]
     fn is_streaming_subscribe_command() {
-        assert!(is_streaming(&Command::Subscribe(TaskIdCommand {
-            id: "t1".to_string()
-        })));
+        assert!(is_streaming(&Command::Task {
+            command: TaskCommand::Subscribe(TaskIdCommand {
+                id: "t1".to_string(),
+            }),
+        }));
     }
 
     #[test]

@@ -170,3 +170,7 @@ bin
 
 vendor
 .envrc
+
+# Per-agent skills are generated on demand — not committed
+/skills/*/
+!/skills/agc/

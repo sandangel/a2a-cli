@@ -3,16 +3,14 @@ use clap::{Args, Parser, Subcommand};
 use crate::formatter::OutputFormat;
 
 // Re-use a2acli's arg structs — no redefinition needed.
-pub use a2acli::{
-    Binding, ListTasksCommand, MessageCommand, PushConfigCommand, TaskIdCommand, TaskLookupCommand,
-};
+pub use a2acli::{Binding, MessageCommand, PushConfigCommand};
 
 /// Re-export `Binding` under the user-facing name used in `--transport`.
 pub type Transport = Binding;
 
 use crate::commands::{
     agent::AgentCommand, auth::AuthCommand, config::ConfigCommand,
-    generate_skills::GenerateSkillsCommand, schema::SchemaCommand,
+    generate_skills::GenerateSkillsCommand, schema::SchemaCommand, task::TaskCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -78,14 +76,11 @@ pub enum Command {
     ExtendedCard,
 
     // ── Task management ───────────────────────────────────────────────
-    /// Fetch a task by ID
-    GetTask(TaskLookupCommand),
-    /// List tasks with optional filters
-    ListTasks(ListTasksCommand),
-    /// Cancel a running task
-    CancelTask(TaskIdCommand),
-    /// Subscribe to live task updates (streaming)
-    Subscribe(TaskIdCommand),
+    /// Manage tasks — get, list, cancel, subscribe
+    Task {
+        #[command(subcommand)]
+        command: TaskCommand,
+    },
 
     // ── Push notifications ────────────────────────────────────────────
     /// Manage push notification configs for a task

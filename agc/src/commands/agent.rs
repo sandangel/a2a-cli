@@ -363,7 +363,7 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     if caps.streaming.unwrap_or(false) {
         let _ = writeln!(s, "agc stream \"<your request>\"");
     }
-    let _ = writeln!(s, "agc list-tasks --status working");
+    let _ = writeln!(s, "agc task list --status working");
     let _ = writeln!(s, "```");
 
     s

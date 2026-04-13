@@ -35,10 +35,10 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 | `agc stream` | Send a streaming message — prints events as they arrive |
 | `agc card` | Fetch and display the public agent card |
 | `agc extended-card` | Fetch the authenticated extended agent card |
-| `agc get-task <id>` | Fetch a task by ID |
-| `agc list-tasks` | List tasks with optional filters |
-| `agc cancel-task <id>` | Cancel a running task |
-| `agc subscribe <id>` | Subscribe to live task updates (streaming) |
+| `agc task get <id>` | Fetch a task by ID |
+| `agc task list` | List tasks with optional filters |
+| `agc task cancel <id>` | Cancel a running task |
+| `agc task subscribe <id>` | Subscribe to live task updates (streaming) |
 | `agc push-config create/get/list/delete` | Manage push notification configs |
 | `agc agent add/use/list/remove/show/update` | Named agent alias registry |
 | `agc agent generate-skills [alias...]` | Generate `skills/<alias>/SKILL.md` from live agent card |

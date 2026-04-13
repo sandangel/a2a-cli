@@ -9,7 +9,7 @@ Designed to be used by humans and AI coding tools alike.
 - **Use `--fields artifacts`** for concise extraction of the reply (AI tools); use `--format table` for human-readable output.
 - **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
-- **Confirm before canceling tasks** — `agc cancel-task` is destructive.
+- **Confirm before canceling tasks** — `agc task cancel` is destructive.
 - **Use `agc schema`** to inspect data structures before crafting messages.
 
 ## Core Syntax
@@ -76,7 +76,7 @@ agc send "What is my name?" --context-id <contextId from above>
 # Stream events as they arrive
 agc stream "Your message"
 
-# Return immediately (async) — poll with agc get-task
+# Return immediately (async) — poll with agc task get
 agc send "Long job" --return-immediately
 ```
 
@@ -135,13 +135,13 @@ agc card --fields name,skills,capabilities
 ## Task Management
 
 ```bash
-agc list-tasks
-agc list-tasks --status working
-agc list-tasks --context-id ctx-abc
-agc get-task  <id>
-agc get-task  <id> --fields status.state
-agc cancel-task <id>          # confirm with user first!
-agc subscribe <id>            # stream live task updates
+agc task list
+agc task list --status working
+agc task list --context-id ctx-abc
+agc task get  <id>
+agc task get  <id> --fields status.state
+agc task cancel <id>          # confirm with user first!
+agc task subscribe <id>            # stream live task updates
 ```
 
 ## Response Shape
@@ -172,7 +172,7 @@ Use `--fields artifacts` to extract the reply.
 | `status.state` | Meaning |
 |----------------|---------|
 | `submitted` | Queued, not started |
-| `working` | In progress — poll with `agc get-task <id>` |
+| `working` | In progress — poll with `agc task get <id>` |
 | `completed` | Finished — read `artifacts[*].parts` for the answer |
 | `failed` | Error — read `status.message` for details |
 | `input-required` | Agent needs a reply — read `status.message.parts`, then `agc send --task-id <id> "..."` |

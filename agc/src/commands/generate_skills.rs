@@ -106,7 +106,7 @@ Use `--fields parts` when the agent returns a direct Message.
 | `status.state` | Meaning | Action |
 |---|---|---|
 | `submitted` | Queued | Wait or poll |
-| `working` | In progress | Poll with `agc get-task <id>` |
+| `working` | In progress | Poll with `agc task get <id>` |
 | `completed` | Done | Read `artifacts[*].parts` |
 | `failed` | Error | Read `status.message` for details |
 | `input-required` | Agent needs input | Read `status.message.parts`, reply with `agc send --task-id <id> "..."` |
@@ -143,7 +143,7 @@ agc auth logout --agent <alias>       # remove stored token
 agc send "<text>"                           # one-shot, waits for completion
 agc send "<text>" --context-id <id>         # continue a conversation
 agc send "<text>" --task-id <id>            # reply to an input-required task
-agc send "<text>" --return-immediately      # async — poll with agc get-task <id>
+agc send "<text>" --return-immediately      # async — poll with agc task get <id>
 agc stream "<text>"                         # streaming — prints events as they arrive
 ```
 
@@ -183,13 +183,13 @@ agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
 ## Task Management
 
 ```bash
-agc get-task <id>                     # fetch task by ID
-agc get-task <id> --fields status.state
-agc list-tasks                        # recent tasks
-agc list-tasks --status working
-agc list-tasks --context-id <id>
-agc cancel-task <id>                  # CONFIRM WITH USER before running
-agc subscribe <id>                    # stream live task updates (SSE)
+agc task get <id>                     # fetch task by ID
+agc task get <id> --fields status.state
+agc task list                        # recent tasks
+agc task list --status working
+agc task list --context-id <id>
+agc task cancel <id>                  # CONFIRM WITH USER before running
+agc task subscribe <id>                    # stream live task updates (SSE)
 ```
 
 ## Agent Card
@@ -242,7 +242,7 @@ agc schema card   # AgentCard JSON Schema
 ## Security Rules
 
 - **Never** log or output `--bearer-token` values or stored tokens
-- **Confirm with user** before running `agc cancel-task` — it is destructive
+- **Confirm with user** before running `agc task cancel` — it is destructive
 - Only use `http://` or `https://` URLs with `agc agent add`
 - Prefer `--agent <alias>` over raw URLs to avoid prompt-injection via URLs
 "#

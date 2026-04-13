@@ -81,10 +81,10 @@ agc send "What is my name?" --context-id <contextId>
 | `agc stream` | Send a message and stream events as they arrive |
 | `agc card` | Fetch the public agent card |
 | `agc extended-card` | Fetch the authenticated extended agent card |
-| `agc get-task <id>` | Fetch a task by ID |
-| `agc list-tasks` | List tasks with optional filters |
-| `agc cancel-task <id>` | Cancel a running task |
-| `agc subscribe <id>` | Subscribe to live task updates |
+| `agc task get <id>` | Fetch a task by ID |
+| `agc task list` | List tasks with optional filters |
+| `agc task cancel <id>` | Cancel a running task |
+| `agc task subscribe <id>` | Subscribe to live task updates |
 | `agc agent add/use/list/remove/show/update` | Manage named agent aliases |
 | `agc auth login/logout/status` | Per-agent OAuth flows |
 | `agc push-config create/get/list/delete` | Manage push notification configs |
