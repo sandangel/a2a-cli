@@ -359,14 +359,11 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     // Quick reference
     let _ = writeln!(s, "## Quick Reference\n\n```bash");
     let _ = writeln!(s, "agc send \"<your request>\"");
-    let _ = writeln!(
-        s,
-        "agc send \"<your request>\" --fields status.message.parts"
-    );
+    let _ = writeln!(s, "agc send \"<your request>\" --fields artifacts");
     if caps.streaming.unwrap_or(false) {
         let _ = writeln!(s, "agc stream \"<your request>\"");
     }
-    let _ = writeln!(s, "agc list-tasks --status TASK_STATE_WORKING");
+    let _ = writeln!(s, "agc list-tasks --status working");
     let _ = writeln!(s, "```");
 
     s
