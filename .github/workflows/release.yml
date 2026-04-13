@@ -39,17 +39,27 @@ jobs:
   # ── plan ──────────────────────────────────────────────────────────────────
   # On workflow_dispatch: determine next version, push tag, then exit.
   #   The tag push re-triggers this workflow at the "push: tags" entry point.
-  # On tag push: extract version/prerelease from the tag.
+  # On tag push: extract version/prerelease/prev_tag from the tag name.
+  #
+  # Tagging rules:
+  #   rc      — tag HEAD of main as v{next}-rc.{N} (auto-increment)
+  #   release — retag the latest RC commit as v{next} (no new code)
+  #
+  # Changelog range (prev_tag → tag):
+  #   release      — latest stable release → new release tag
+  #   rc.1         — latest stable release → new rc tag
+  #   rc.N (N≥2)   — previous rc tag (rc.N-1) → new rc tag
   plan:
     runs-on: ubuntu-latest
     outputs:
       tag:        ${{ steps.meta.outputs.tag }}
       version:    ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
+      prev_tag:   ${{ steps.meta.outputs.prev_tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          fetch-depth: 0   # git-cliff needs full history
+          fetch-depth: 0
 
       - name: Install git-cliff
         if: github.event_name == 'workflow_dispatch'
@@ -67,22 +77,32 @@ jobs:
             exit 1
           fi
 
-          if [ "${{ inputs.release_type }}" = "rc" ]; then
-            LATEST=$(git tag -l "v${NEXT}-rc.*" | sort -V | tail -1)
-            if [ -z "$LATEST" ]; then
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ "${{ inputs.release_type }}" = "release" ]; then
+            # Retag the latest RC commit — no new code enters the release
+            LATEST_RC=$(git tag -l "v${NEXT}-rc.*" | sort -V | tail -1)
+            if [ -z "$LATEST_RC" ]; then
+              echo "::error::No RC tags found for v${NEXT}. Cut an RC first."
+              exit 1
+            fi
+            RC_COMMIT=$(git rev-list -n1 "$LATEST_RC")
+            TAG="v${NEXT}"
+            git tag "$TAG" "$RC_COMMIT"
+          else
+            # RC: auto-increment, tag current HEAD
+            LATEST_RC=$(git tag -l "v${NEXT}-rc.*" | sort -V | tail -1)
+            if [ -z "$LATEST_RC" ]; then
               N=1
             else
-              N=$(echo "$LATEST" | grep -oP '(?<=rc\.)\d+$')
+              N=$(echo "$LATEST_RC" | grep -oP '(?<=rc\.)\d+$')
               N=$((N + 1))
             fi
             TAG="v${NEXT}-rc.${N}"
-          else
-            TAG="v${NEXT}"
+            git tag "$TAG"
           fi
 
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
           git push origin "$TAG"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
@@ -95,13 +115,33 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           VERSION="${TAG#v}"
-          echo "tag=${TAG}"        >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"         >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          if [[ "$VERSION" == *-* ]]; then
-            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+
+          # Determine the previous tag for the changelog range
+          # Latest stable = highest vX.Y.Z tag without a pre-release suffix
+          LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
+            | grep -v '\-' | sort -V | grep -v "^${TAG}$" | tail -1)
+
+          if [[ "$VERSION" == *-rc.* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            BASE="${VERSION%-rc.*}"
+            N="${VERSION##*-rc.}"
+            if [ "$N" = "1" ]; then
+              # First RC: diff against latest stable release
+              PREV="$LATEST_STABLE"
+            else
+              # Subsequent RC: diff against previous RC
+              PREV="v${BASE}-rc.$((N - 1))"
+            fi
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            # Release: diff against latest stable release
+            PREV="$LATEST_STABLE"
           fi
+
+          echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
+          echo "prev_tag=${PREV}, tag=${TAG}"
 
   # ── build ─────────────────────────────────────────────────────────────────
   # Only runs on tag push (the workflow_dispatch run exits after plan).
@@ -216,8 +256,13 @@ jobs:
 
       - name: Generate changelog
         run: |
-          git-cliff --tag "${{ needs.plan.outputs.tag }}" --unreleased --strip header \
-            -o changelog-release.md
+          TAG="${{ needs.plan.outputs.tag }}"
+          PREV="${{ needs.plan.outputs.prev_tag }}"
+          if [ -n "$PREV" ]; then
+            git-cliff --strip header "${PREV}..${TAG}" -o changelog-release.md
+          else
+            git-cliff --strip header --tag "${TAG}" -o changelog-release.md
+          fi
           cat changelog-release.md
 
       - uses: actions/download-artifact@v4
