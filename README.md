@@ -65,8 +65,8 @@ agc auth login
 # Send a message
 agc send "Hello, agent!"
 
-# Get just the reply text
-agc send "What is 2+2?" --fields status.message.parts
+# Get just the reply (artifacts hold task output per A2A spec)
+agc send "What is 2+2?" --fields artifacts
 ```
 
 ## Commands

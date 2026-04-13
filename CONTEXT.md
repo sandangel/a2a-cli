@@ -5,8 +5,8 @@ Designed to be used by humans and AI coding tools alike.
 
 ## Rules of Engagement for AI Agents
 
-- **Read the answer from `status.message.parts`** — the agent's reply is in the task's status message parts (some agents also use `artifacts`).
-- **Use `--fields status.message.parts`** for concise extraction of the agent's reply (AI tools); use `--format table` for human-readable output.
+- **Read the answer from `artifacts`** — per the A2A spec, task outputs MUST be returned in `artifacts`. `status.message` is for in-progress communication only (e.g. `input-required` prompts), not final results.
+- **Use `--fields artifacts`** for concise extraction of the reply (AI tools); use `--format table` for human-readable output.
 - **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
 - **Confirm before canceling tasks** — `agc cancel-task` is destructive.
@@ -31,8 +31,8 @@ agc auth login
 # Send a message
 agc send "Hello, agent!"
 
-# Get just the text reply
-agc send "What is the status?" --fields status.message.parts
+# Get just the reply artifacts
+agc send "What is the status?" --fields artifacts
 ```
 
 ## Output
@@ -55,7 +55,7 @@ agc --format table auth status              # table of token statuses
 
 # AI tools
 agc send "Hello" --fields status.state      # just the state
-agc send "Hello" --fields status.message.parts  # reply parts
+agc send "Hello" --fields artifacts         # reply artifacts (task output)
 agc send "Hello" --compact                  # single-line JSON
 ```
 
@@ -65,7 +65,7 @@ Multi-agent output is always NDJSON — one compact JSON line per agent, each ta
 
 ```bash
 agc send "Your message"
-agc send "Your message" --fields status.message.parts
+agc send "Your message" --fields artifacts
 
 # Continue a conversation
 agc send "Follow up"   --task-id   task-abc
@@ -103,22 +103,22 @@ agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
 ## Agent Management
 
 ```bash
-agc agent add prod  https://agent.example.com --description "Production"
+agc agent add rover https://agent.example.com --description "Rover"
 agc agent add local http://localhost:8080
-agc agent use prod           # set active agent
+agc agent use rover          # set active agent
 agc agent list               # show all agents
 agc agent show               # show active agent details
-agc agent update prod --client-id my-app
-agc agent remove staging
+agc agent update rover --client-id my-app
+agc agent remove local
 ```
 
 ## Authentication
 
 ```bash
 agc auth login               # active agent
-agc auth login --agent prod  # specific agent
-agc auth status              # all agents
-agc auth logout --agent prod
+agc auth login --agent rover  # specific agent
+agc auth status               # all agents
+agc auth logout --agent rover
 ```
 
 ## Agent Card
@@ -126,7 +126,7 @@ agc auth logout --agent prod
 ```bash
 agc card                     # public card — capabilities and auth info
 agc extended-card            # authenticated extended card
-agc card --agent prod        # specific agent
+agc card --agent rover       # specific agent
 agc card --fields name,skills,capabilities
 ```
 
@@ -148,27 +148,30 @@ agc subscribe <id>            # stream live task updates
 
 ```json
 {
-  "id":         "task-abc123",
-  "context_id": "ctx-abc123",
+  "id":        "task-abc123",
+  "contextId": "ctx-abc123",
   "status": {
-    "state":   "completed",
-    "message": {
-      "role":  "agent",
+    "state": "completed"
+  },
+  "artifacts": [
+    {
+      "artifactId": "...",
       "parts": [{ "kind": "text", "text": "The agent's answer" }]
     }
-  },
-  "artifacts": [],
-  "history":   null
+  ]
 }
 ```
+
+Per the A2A spec: task outputs MUST be in `artifacts`. `status.message` is only
+present for in-progress communication such as `input-required` prompts.
 
 | `status.state` | Meaning |
 |----------------|---------|
 | `submitted` | Queued, not started |
 | `working` | In progress — poll with `agc get-task <id>` |
-| `completed` | Finished — read `status.message.parts` for the answer |
+| `completed` | Finished — read `artifacts[*].parts` for the answer |
 | `failed` | Error — read `status.message` for details |
-| `input-required` | Agent needs a reply — use `agc send --task-id <id> "..."` |
+| `input-required` | Agent needs a reply — read `status.message.parts`, then use `agc send --task-id <id> "..."` |
 | `canceled` | Canceled |
 
 Multi-agent results include `agent` and `agent_url` at the top level.
