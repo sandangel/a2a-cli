@@ -97,11 +97,38 @@ fn apply_fields(value: &Value, fields: Option<&str>) -> Value {
     let mut out = serde_json::Map::new();
     for path in paths {
         if let Some(v) = extract_path(value, path) {
-            let key = path.split('.').next().unwrap_or(path);
-            out.insert(key.to_string(), v);
+            deep_merge(&mut out, nest_value(path, v));
         }
     }
     Value::Object(out)
+}
+
+/// Wrap `value` in the nested object structure described by `path`.
+/// e.g. `nest_value("status.state", "completed")` →  `{"status": {"state": "completed"}}`
+fn nest_value(path: &str, value: Value) -> serde_json::Map<String, Value> {
+    let mut keys = path.split('.');
+    let top = keys.next().unwrap_or(path);
+    let rest: Vec<&str> = keys.collect();
+    let inner = if rest.is_empty() {
+        value
+    } else {
+        Value::Object(nest_value(&rest.join("."), value))
+    };
+    let mut m = serde_json::Map::new();
+    m.insert(top.to_string(), inner);
+    m
+}
+
+/// Recursively merge `src` into `dst`. Object values are merged; all other
+/// values in `src` overwrite those in `dst`.
+fn deep_merge(dst: &mut serde_json::Map<String, Value>, src: serde_json::Map<String, Value>) {
+    for (key, src_val) in src {
+        let dst_val = dst.entry(key).or_insert(Value::Null);
+        match (dst_val, src_val) {
+            (Value::Object(d), Value::Object(s)) => deep_merge(d, s),
+            (slot, v) => *slot = v,
+        }
+    }
 }
 
 fn extract_path(value: &Value, path: &str) -> Option<Value> {
@@ -190,5 +217,25 @@ mod tests {
     fn path_on_non_object_returns_null() {
         let v = json!({"a": "string"});
         assert_eq!(apply_fields(&v, Some("a.nested")), json!(null));
+    }
+
+    #[test]
+    fn sibling_subfields_are_merged_not_overwritten() {
+        let v = json!({"status": {"state": "completed", "timestamp": "2026-01-01T00:00:00Z"}});
+        let result = apply_fields(&v, Some("status.state,status.timestamp"));
+        assert_eq!(
+            result,
+            json!({"status": {"state": "completed", "timestamp": "2026-01-01T00:00:00Z"}})
+        );
+    }
+
+    #[test]
+    fn mixed_top_level_and_nested_fields_merge_correctly() {
+        let v = json!({"id": "abc", "status": {"state": "completed"}});
+        let result = apply_fields(&v, Some("id,status.state"));
+        assert_eq!(
+            result,
+            json!({"id": "abc", "status": {"state": "completed"}})
+        );
     }
 }
