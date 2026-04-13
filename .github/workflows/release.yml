@@ -235,38 +235,14 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          INSTALL_NOTES="## Installation
+          # Stamp the tag into the download URLs, then append the changelog
+          TAG="${{ needs.plan.outputs.tag }}"
+          sed "s|TAG|${TAG}|g" .github/release-header.md > release-notes.md
+          cat changelog-release.md >> release-notes.md
 
-### npm (recommended)
-
-\`\`\`bash
-npm install -g @rover/agent-cli
-\`\`\`
-
-### Direct download
-
-Replace \`<target>\` with your platform (e.g., \`aarch64-apple-darwin\` or \`x86_64-unknown-linux-gnu\`).
-
-\`\`\`bash
-# 1. Download the archive and its checksum
-curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ needs.plan.outputs.tag }}/agc-<target>.tar.gz
-curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ needs.plan.outputs.tag }}/agc-<target>.tar.gz.sha256
-
-# 2. Verify the checksum
-shasum -a 256 -c agc-<target>.tar.gz.sha256
-
-# 3. Extract and install
-tar -xzf agc-<target>.tar.gz
-chmod +x agc
-sudo mv agc /usr/local/bin/
-\`\`\`
-"
-
-          { echo "$INSTALL_NOTES"; echo "---"; echo ""; cat changelog-release.md; } > release-notes.md
-
-          gh release create "${{ needs.plan.outputs.tag }}" \
+          gh release create "${TAG}" \
             --target "${{ github.sha }}" \
-            --title "${{ needs.plan.outputs.tag }}" \
+            --title "${TAG}" \
             --notes-file release-notes.md \
             $PRERELEASE_FLAG \
             artifacts/*

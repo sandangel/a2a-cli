@@ -1,10 +1,6 @@
 name: Generate Skills
 
-# Auto-updates SKILL.md files whenever:
-#   1. CLI source changes — skill content may drift from command output
-#   2. Agent cards change (hourly) — per-agent skill descriptions drift
-#   3. Manual trigger
-#
+# Auto-updates SKILL.md files whenever CLI source changes or on manual trigger.
 # skills/agc/SKILL.md is derived from the binary's built-in content.
 # Any flag/command/description change is reflected on next run — no manual edit needed.
 
@@ -14,8 +10,6 @@ on:
       - main
     paths:
       - "agc/src/**"
-  schedule:
-    - cron: "0 * * * *"
   workflow_dispatch:
 
 concurrency:
