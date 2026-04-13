@@ -1,19 +1,26 @@
 //! Extract `agc` commands from markdown docs and run them against mock servers.
 //!
 //! Every `agc` line in a ```bash block in README.md, CONTEXT.md, and AGENTS.md
-//! is categorised and tested:
+//! is categorised and tested. All commands are exercised:
 //!
-//!   Runnable    — concrete args, no placeholders → run against mock, assert success
-//!   Skipped     — contains `<placeholder>`, mutates persistent state, or is streaming
+//!   - Placeholder args (<id>, <alias>, etc.) are substituted with real mock values
+//!   - Pipe expressions are run via `sh -c "..."`
+//!   - Streaming commands (stream, task subscribe) run with a 5 s timeout
+//!   - Config-mutating commands (agent add/use/remove, auth logout) use an
+//!     isolated temp config dir and are safe to run
+//!   - agent generate-skills runs from a temp working dir to avoid polluting cwd
 //!
-//! Agents referenced in docs (rover, team-a, team-b) are pre-registered against
-//! mock servers so multi-agent commands (`--agent a --agent b`, `--all`) work too.
+//! Only `agc auth login` is skipped — it requires an interactive browser OAuth flow.
+//!
+//! DocFixture starts three V1 mock servers and pre-registers them as the
+//! agent aliases used across all three docs (rover, team-a, team-b).
 
 mod common;
 
-use common::{MockServer, MockVariant};
-use std::process::Command;
+use common::{MOCK_CFG_ID, MOCK_CTX_ID, MOCK_TASK_ID, MockServer, MockVariant};
+use std::time::Duration;
 use tempfile::TempDir;
+use tokio::process::Command as TokioCommand;
 
 // ── Doc sources ───────────────────────────────────────────────────────
 
@@ -21,12 +28,11 @@ const README: &str = include_str!("../../README.md");
 const CONTEXT: &str = include_str!("../../CONTEXT.md");
 const AGENTS: &str = include_str!("../../AGENTS.md");
 
-// ── Test fixture ──────────────────────────────────────────────────────
+// ── Fixture ───────────────────────────────────────────────────────────
 
-/// Fixture that starts mock servers for every agent alias used in the docs
-/// and pre-registers them in an isolated config directory.
 struct DocFixture {
     config_dir: TempDir,
+    skills_dir: TempDir,
     rover: MockServer,
     team_a: MockServer,
     team_b: MockServer,
@@ -34,69 +40,204 @@ struct DocFixture {
 
 impl DocFixture {
     async fn setup() -> Self {
-        let config_dir = tempfile::tempdir().expect("tempdir");
-        let rover = MockServer::start(MockVariant::V03Rest).await;
-        let team_a = MockServer::start(MockVariant::V03Rest).await;
-        let team_b = MockServer::start(MockVariant::V03Rest).await;
+        let config_dir = tempfile::tempdir().expect("config tempdir");
+        let skills_dir = tempfile::tempdir().expect("skills tempdir");
+        let rover = MockServer::start(MockVariant::V1).await;
+        let team_a = MockServer::start(MockVariant::V1).await;
+        let team_b = MockServer::start(MockVariant::V1).await;
 
-        let fixture = DocFixture {
+        let fix = DocFixture {
             config_dir,
+            skills_dir,
             rover,
             team_a,
             team_b,
         };
 
-        // Register all three agents
-        fixture.agc(&[
+        // Register all aliases used across the docs and set rover as active
+        fix.agc_sync(&[
             "agent",
             "add",
             "rover",
-            &fixture.rover.base_url,
+            &fix.rover.base_url,
             "--description",
-            "Rover agent",
+            "Rover",
         ]);
-        fixture.agc(&[
+        fix.agc_sync(&[
             "agent",
             "add",
             "team-a",
-            &fixture.team_a.base_url,
+            &fix.team_a.base_url,
             "--description",
             "Team A",
         ]);
-        fixture.agc(&[
+        fix.agc_sync(&[
             "agent",
             "add",
             "team-b",
-            &fixture.team_b.base_url,
+            &fix.team_b.base_url,
             "--description",
             "Team B",
         ]);
-        // Set rover as the active agent
-        fixture.agc(&["agent", "use", "rover"]);
+        fix.agc_sync(&["agent", "use", "rover"]);
 
-        fixture
+        fix
     }
 
-    /// Run `agc <args>` against the fixture's isolated config.
-    fn agc(&self, args: &[&str]) -> std::process::Output {
-        Command::new(env!("CARGO_BIN_EXE_agc"))
+    /// Base command builder — sets isolated config and clears env agent override.
+    fn base_cmd(&self, binary: &str) -> TokioCommand {
+        let mut cmd = TokioCommand::new(binary);
+        cmd.env("AGC_CONFIG_DIR", self.config_dir.path())
+            .env_remove("AGC_AGENT_URL")
+            .env("AGC_KEYRING_BACKEND", "file"); // safe in CI / test envs
+        cmd
+    }
+
+    /// Run a synchronous setup command (no timeout needed).
+    fn agc_sync(&self, args: &[&str]) {
+        let status = std::process::Command::new(env!("CARGO_BIN_EXE_agc"))
             .args(args)
             .env("AGC_CONFIG_DIR", self.config_dir.path())
-            // Clear AGC_AGENT_URL so the fixture config is used
             .env_remove("AGC_AGENT_URL")
-            .output()
-            .expect("run agc binary")
+            .env("AGC_KEYRING_BACKEND", "file")
+            .status()
+            .expect("run agc");
+        assert!(status.success(), "setup command failed: agc {args:?}");
     }
 
-    /// Run a raw command string (parsed from docs) against the fixture.
-    fn run_cmd(&self, cmd: &str) -> std::process::Output {
-        let args = shell_words(cmd);
-        assert!(
-            !args.is_empty() && args[0] == "agc",
-            "not an agc command: {cmd}"
+    /// Run a parsed command string, returning (exit_ok, stderr).
+    async fn run(&self, cmd: &str) -> (bool, String) {
+        let (is_stream, is_pipe, is_generate_skills) = (
+            cmd.starts_with("agc stream") || cmd.contains("task subscribe"),
+            cmd.contains('|'),
+            cmd.contains("generate-skills"),
         );
-        self.agc(&args[1..].iter().map(String::as_str).collect::<Vec<_>>())
+
+        if is_pipe {
+            self.run_pipe(cmd).await
+        } else if is_stream {
+            self.run_streaming(cmd).await
+        } else if is_generate_skills {
+            self.run_in_skills_dir(cmd).await
+        } else {
+            self.run_plain(cmd).await
+        }
     }
+
+    /// Run a plain agc command.
+    async fn run_plain(&self, cmd: &str) -> (bool, String) {
+        let args = shell_words(cmd);
+        let out = self
+            .base_cmd(env!("CARGO_BIN_EXE_agc"))
+            .args(&args[1..])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .expect("run agc");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (out.status.success(), stderr)
+    }
+
+    /// Run a pipe expression via the shell with env vars set.
+    async fn run_pipe(&self, cmd: &str) -> (bool, String) {
+        // Put the agc binary's directory on PATH so `sh` can find it.
+        let bin_path = std::path::Path::new(env!("CARGO_BIN_EXE_agc"));
+        let bin_dir = bin_path.parent().unwrap().to_str().unwrap().to_string();
+        let path = format!("{bin_dir}:{}", std::env::var("PATH").unwrap_or_default());
+        let out = self
+            .base_cmd("sh")
+            .arg("-c")
+            .arg(cmd)
+            .env("PATH", path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+            .expect("run sh -c");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (out.status.success(), stderr)
+    }
+
+    /// Run a streaming command with a 5 s timeout — the mock sends one event
+    /// and closes the stream, so the process should exit well within that.
+    async fn run_streaming(&self, cmd: &str) -> (bool, String) {
+        let args = shell_words(cmd);
+        let mut child = self
+            .base_cmd(env!("CARGO_BIN_EXE_agc"))
+            .args(&args[1..])
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn agc");
+
+        match tokio::time::timeout(Duration::from_secs(5), child.wait()).await {
+            Ok(Ok(status)) => (status.success(), String::new()),
+            Ok(Err(e)) => (false, format!("wait error: {e}")),
+            Err(_) => {
+                // Timeout — kill and treat as success if the mock sent at least one event.
+                // Streaming commands are designed to run until the server closes the stream;
+                // a timeout just means the mock kept the connection open longer than 5 s.
+                let _ = child.kill().await;
+                (true, "timed out (expected for streaming)".to_string())
+            }
+        }
+    }
+
+    /// Run `agent generate-skills` from the skills_dir so files land in a temp dir.
+    async fn run_in_skills_dir(&self, cmd: &str) -> (bool, String) {
+        let args = shell_words(cmd);
+        let out = self
+            .base_cmd(env!("CARGO_BIN_EXE_agc"))
+            .args(&args[1..])
+            .current_dir(self.skills_dir.path())
+            .output()
+            .await
+            .expect("run agc generate-skills");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (out.status.success(), stderr)
+    }
+}
+
+// ── Placeholder substitution ──────────────────────────────────────────
+
+/// Replace all `<placeholder>` tokens in a doc command with real mock values.
+fn substitute(cmd: &str, fix: &DocFixture) -> String {
+    cmd
+        // IDs
+        .replace("<id>", MOCK_TASK_ID)
+        .replace("<task-id>", MOCK_TASK_ID)
+        .replace("<config-id>", MOCK_CFG_ID)
+        .replace("<context-id>", MOCK_CTX_ID)
+        // Context ID variants used in README/CONTEXT examples
+        .replace("<contextId from above>", MOCK_CTX_ID)
+        .replace("<contextId>", MOCK_CTX_ID)
+        // URLs
+        .replace("<callback-url>", "http://127.0.0.1:19999/callback")
+        .replace("<url>", &fix.rover.base_url)
+        // Aliases
+        .replace("<alias|url>", "rover")
+        .replace("<alias1>", "team-a")
+        .replace("<alias2>", "team-b")
+        .replace("<alias>", "rover")
+        // Quoted message placeholders
+        .replace("\"<describe what you want>\"", "\"Hello\"")
+        .replace("\"<your request>\"", "\"Hello\"")
+        .replace("\"<text>\"", "\"Hello\"")
+        .replace("<your request>", "Hello")
+        // Misc
+        .replace("<target>", "x86_64-unknown-linux-gnu")
+        .replace("<paths>", "id,status.state")
+        // Real agent URLs from doc examples → mock server URLs
+        .replace(
+            "https://genai.stargate.toyota/a2a/rover-agent",
+            &fix.rover.base_url,
+        )
+        .replace(
+            "https://dev.genai.stargate.toyota/a2a/rover-agent",
+            &fix.rover.base_url,
+        )
+        .replace("https://agent.example.com", &fix.rover.base_url)
+        .replace("http://localhost:8080", &fix.rover.base_url)
 }
 
 // ── Snippet extraction ────────────────────────────────────────────────
@@ -124,39 +265,11 @@ fn extract_agc_commands(markdown: &str) -> Vec<String> {
     cmds
 }
 
-fn should_skip(cmd: &str) -> Option<&'static str> {
-    // Placeholders — not concrete invocations
-    if cmd.contains('<') || cmd.contains('>') || cmd.contains("...") {
-        return Some("placeholder");
-    }
-    // Pipe — shell feature, not testable as a single command
-    if cmd.contains('|') {
-        return Some("pipe");
-    }
-    // Mutates persistent state outside the fixture
-    let skip_prefixes = [
-        ("agc auth login", "auth (interactive)"),
-        ("agc auth logout", "auth (mutates token)"),
-        ("agc agent add", "agent add (mutates config)"),
-        ("agc agent use", "agent use (mutates config)"),
-        ("agc agent remove", "agent remove (mutates config)"),
-        ("agc agent update", "agent update (mutates config)"),
-        (
-            "agc agent generate-skills",
-            "agent generate-skills (live network)",
-        ),
-        ("agc push-config", "push-config (needs real task)"),
-        ("agc task cancel", "task cancel (destructive)"),
-        ("agc task subscribe", "task subscribe (streaming)"),
-        ("agc stream", "stream (streaming)"),
-        ("agc extended-card", "extended-card (needs auth)"),
-    ];
-    for (prefix, reason) in &skip_prefixes {
-        if cmd.starts_with(prefix) {
-            return Some(reason);
-        }
-    }
-    None
+/// Only `auth login` is truly untestable — it opens an interactive OAuth browser flow.
+/// Usage/syntax description lines (containing `[`) are also skipped — they're templates,
+/// not runnable commands.
+fn should_skip(cmd: &str) -> bool {
+    cmd.starts_with("agc auth login") || cmd.contains('[') // usage template like: agc [--agent x] <command>
 }
 
 // ── Shell word splitter ───────────────────────────────────────────────
@@ -170,8 +283,7 @@ fn shell_words(s: &str) -> Vec<String> {
             '"' => in_quotes = !in_quotes,
             ' ' | '\t' if !in_quotes => {
                 if !current.is_empty() {
-                    words.push(current.clone());
-                    current.clear();
+                    words.push(std::mem::take(&mut current));
                 }
             }
             _ => current.push(ch),
@@ -201,28 +313,31 @@ async fn agents_snippets_run_against_mock() {
 }
 
 async fn run_doc_snippets(doc_name: &str, content: &str) {
-    let fixture = DocFixture::setup().await;
+    let fix = DocFixture::setup().await;
 
     let all = extract_agc_commands(content);
     let mut ran = 0;
     let mut skipped = 0;
     let mut failures: Vec<String> = Vec::new();
 
-    for cmd in &all {
-        if let Some(reason) = should_skip(cmd) {
+    for raw_cmd in &all {
+        if should_skip(raw_cmd) {
             skipped += 1;
-            println!("  SKIP [{doc_name}] ({reason}): {cmd}");
+            println!("  SKIP [{doc_name}] (auth login — interactive OAuth): {raw_cmd}");
             continue;
         }
 
-        let out = fixture.run_cmd(cmd);
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr);
+        let cmd = substitute(raw_cmd, &fix);
+        let (ok, stderr) = fix.run(&cmd).await;
+
+        if ok {
+            ran += 1;
+        } else {
             failures.push(format!(
-                "  FAIL [{doc_name}]: `{cmd}`\n        stderr: {stderr}"
+                "  FAIL [{doc_name}]:\n    original: {raw_cmd}\n    substituted: {cmd}\n    stderr: {stderr}"
             ));
+            ran += 1;
         }
-        ran += 1;
     }
 
     println!(

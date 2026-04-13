@@ -1,5 +1,5 @@
 pub mod mock_server;
-pub use mock_server::{MockServer, MockVariant};
+pub use mock_server::{MOCK_CFG_ID, MOCK_CTX_ID, MOCK_TASK_ID, MockServer, MockVariant};
 
 use a2acli::MessageCommand;
 use agc::cli::Command;

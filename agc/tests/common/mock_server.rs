@@ -1,18 +1,19 @@
 /// Mock A2A server for integration tests.
 ///
 /// Three variants:
-/// - [`MockVariant::V1`]       — full A2A v1 server backed by `a2a-server`
+/// - [`MockVariant::V1`]         — full A2A v1 server backed by `a2a-server`
 /// - [`MockVariant::V03JsonRpc`] — v0.3 JSON-RPC hand-crafted axum handler
-/// - [`MockVariant::V03Rest`]  — v0.3 HTTP+JSON REST hand-crafted axum handler
+/// - [`MockVariant::V03Rest`]    — v0.3 HTTP+JSON REST hand-crafted axum handler
 use std::sync::Arc;
 
 use a2a::{
-    A2AError, AgentCard, Artifact, CancelTaskRequest, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
-    ListTaskPushNotificationConfigsResponse, ListTasksRequest, ListTasksResponse, Message, Part,
-    Role, SendMessageRequest, SendMessageResponse, SubscribeToTaskRequest, Task,
-    TaskPushNotificationConfig, TaskState, TaskStatus,
+    A2AError, AgentCapabilities, AgentCard, AgentSkill, Artifact, CancelTaskRequest,
+    CreateTaskPushNotificationConfigRequest, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
+    ListTasksRequest, ListTasksResponse, Message, Part, Role, SendMessageRequest,
+    SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task, TaskId,
+    TaskPushNotificationConfig, TaskState, TaskStatus, TaskStatusUpdateEvent,
 };
 use a2a_client::BoxStream;
 use a2a_server::{RequestHandler, ServiceParams};
@@ -20,8 +21,10 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     extract::Path,
+    response::{IntoResponse, Response, Sse, sse::Event},
     routing::{get, post},
 };
+use futures::stream;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
@@ -79,54 +82,22 @@ fn build_router(variant: MockVariant, port: u16) -> Router {
     }
 }
 
-// ── V1 router (backed by a2a-server) ─────────────────────────────────
+// ── Shared task fixtures ──────────────────────────────────────────────
 
-fn build_v1_router(port: u16) -> Router {
-    let handler: Arc<MockV1Handler> = Arc::new(MockV1Handler);
-    Router::new()
-        .route(
-            "/.well-known/agent-card.json",
-            get(move || {
-                let card = v1_card_json(port);
-                async move { Json(card) }
-            }),
-        )
-        .nest("/rpc", a2a_server::jsonrpc::jsonrpc_router(handler))
-}
-
-fn v1_card_json(port: u16) -> Value {
-    json!({
-        "name": "mock-rover",
-        "description": "Mock A2A v1 agent",
-        "version": "1.0.0",
-        "supportedInterfaces": [
-            {
-                "url": format!("http://127.0.0.1:{port}/rpc"),
-                "protocolBinding": "JSONRPC",
-                "protocolVersion": "1.0"
-            }
-        ],
-        "capabilities": {},
-        "defaultInputModes":  ["text/plain"],
-        "defaultOutputModes": ["text/plain"],
-        "skills": []
-    })
-}
-
-// ── V1 RequestHandler (canned responses) ─────────────────────────────
-
-struct MockV1Handler;
+pub const MOCK_TASK_ID: &str = "test-task-id-42";
+pub const MOCK_CTX_ID: &str = "test-ctx-id-42";
+pub const MOCK_CFG_ID: &str = "test-config-id-1";
 
 fn mock_task() -> Task {
     Task {
-        id: "test-task-id-42".to_string(),
-        context_id: "test-ctx-id-42".to_string(),
+        id: MOCK_TASK_ID.to_string(),
+        context_id: MOCK_CTX_ID.to_string(),
         status: TaskStatus {
             state: TaskState::Completed,
             message: Some(Message {
                 message_id: "msg-1".to_string(),
-                context_id: Some("test-ctx-id-42".to_string()),
-                task_id: Some("test-task-id-42".to_string()),
+                context_id: Some(MOCK_CTX_ID.to_string()),
+                task_id: Some(MOCK_TASK_ID.to_string()),
                 role: Role::Agent,
                 parts: vec![Part::text("Mock reply from agent.")],
                 metadata: None,
@@ -150,8 +121,8 @@ fn mock_task() -> Task {
 
 fn mock_canceled_task() -> Task {
     Task {
-        id: "test-task-id-42".to_string(),
-        context_id: "test-ctx-id-42".to_string(),
+        id: MOCK_TASK_ID.to_string(),
+        context_id: MOCK_CTX_ID.to_string(),
         status: TaskStatus {
             state: TaskState::Canceled,
             message: None,
@@ -162,6 +133,80 @@ fn mock_canceled_task() -> Task {
         metadata: None,
     }
 }
+
+fn mock_push_config(task_id: &str) -> TaskPushNotificationConfig {
+    TaskPushNotificationConfig {
+        task_id: task_id.to_string(),
+        config: a2a::PushNotificationConfig {
+            url: "http://127.0.0.1:19999/callback".to_string(),
+            id: Some(MOCK_CFG_ID.to_string()),
+            token: None,
+            authentication: None,
+        },
+        tenant: None,
+    }
+}
+
+fn mock_status_stream_event() -> StreamResponse {
+    StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
+        task_id: MOCK_TASK_ID.to_string(),
+        context_id: MOCK_CTX_ID.to_string(),
+        status: mock_task().status,
+        metadata: None,
+    })
+}
+
+// ── V1 router (backed by a2a-server) ─────────────────────────────────
+
+fn build_v1_router(port: u16) -> Router {
+    let handler: Arc<MockV1Handler> = Arc::new(MockV1Handler);
+    Router::new()
+        .route(
+            "/.well-known/agent-card.json",
+            get(move || {
+                let card = v1_card_json(port);
+                async move { Json(card) }
+            }),
+        )
+        .nest("/rpc", a2a_server::jsonrpc::jsonrpc_router(handler))
+}
+
+fn v1_card_json(port: u16) -> Value {
+    json!({
+        "name": "mock-rover",
+        "description": "Mock A2A v1 agent for testing all documented commands.",
+        "version": "1.0.0",
+        "supportedInterfaces": [
+            {
+                "url": format!("http://127.0.0.1:{port}/rpc"),
+                "protocolBinding": "JSONRPC",
+                "protocolVersion": "1.0"
+            }
+        ],
+        "capabilities": {
+            "streaming": true,
+            "pushNotifications": true,
+            "extendedAgentCard": true
+        },
+        "defaultInputModes":  ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
+        "skills": [
+            {
+                "id": "search-docs",
+                "name": "Search Documentation",
+                "description": "Search internal documentation and answer questions.",
+                "tags": ["search", "docs"],
+                "examples": ["What is the A2A protocol?", "How do I authenticate?"],
+                "inputModes":  ["text/plain"],
+                "outputModes": ["text/plain"]
+            }
+        ]
+    })
+}
+
+// ── V1 RequestHandler (full canned responses) ─────────────────────────
+
+struct MockV1Handler;
 
 #[async_trait]
 impl RequestHandler for MockV1Handler {
@@ -177,10 +222,10 @@ impl RequestHandler for MockV1Handler {
         &self,
         _params: &ServiceParams,
         _req: SendMessageRequest,
-    ) -> Result<BoxStream<'static, Result<a2a::StreamResponse, A2AError>>, A2AError> {
-        Err(A2AError::unsupported_operation(
-            "streaming not used in tests",
-        ))
+    ) -> Result<BoxStream<'static, Result<StreamResponse, A2AError>>, A2AError> {
+        Ok(Box::pin(stream::once(async {
+            Ok(mock_status_stream_event())
+        })))
     }
 
     async fn get_task(
@@ -216,34 +261,37 @@ impl RequestHandler for MockV1Handler {
         &self,
         _params: &ServiceParams,
         _req: SubscribeToTaskRequest,
-    ) -> Result<BoxStream<'static, Result<a2a::StreamResponse, A2AError>>, A2AError> {
-        Err(A2AError::unsupported_operation(
-            "subscribe not used in tests",
-        ))
+    ) -> Result<BoxStream<'static, Result<StreamResponse, A2AError>>, A2AError> {
+        Ok(Box::pin(stream::once(async {
+            Ok(mock_status_stream_event())
+        })))
     }
 
     async fn create_push_config(
         &self,
         _params: &ServiceParams,
-        _req: CreateTaskPushNotificationConfigRequest,
+        req: CreateTaskPushNotificationConfigRequest,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        Err(A2AError::unsupported_operation("push not used in tests"))
+        Ok(mock_push_config(&req.task_id))
     }
 
     async fn get_push_config(
         &self,
         _params: &ServiceParams,
-        _req: GetTaskPushNotificationConfigRequest,
+        req: GetTaskPushNotificationConfigRequest,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        Err(A2AError::unsupported_operation("push not used in tests"))
+        Ok(mock_push_config(&req.task_id))
     }
 
     async fn list_push_configs(
         &self,
         _params: &ServiceParams,
-        _req: ListTaskPushNotificationConfigsRequest,
+        req: ListTaskPushNotificationConfigsRequest,
     ) -> Result<ListTaskPushNotificationConfigsResponse, A2AError> {
-        Err(A2AError::unsupported_operation("push not used in tests"))
+        Ok(ListTaskPushNotificationConfigsResponse {
+            configs: vec![mock_push_config(&req.task_id)],
+            next_page_token: None,
+        })
     }
 
     async fn delete_push_config(
@@ -251,7 +299,7 @@ impl RequestHandler for MockV1Handler {
         _params: &ServiceParams,
         _req: DeleteTaskPushNotificationConfigRequest,
     ) -> Result<(), A2AError> {
-        Err(A2AError::unsupported_operation("push not used in tests"))
+        Ok(())
     }
 
     async fn get_extended_agent_card(
@@ -259,19 +307,45 @@ impl RequestHandler for MockV1Handler {
         _params: &ServiceParams,
         _req: GetExtendedAgentCardRequest,
     ) -> Result<AgentCard, A2AError> {
-        Err(A2AError::unsupported_operation(
-            "extended card not used in tests",
-        ))
+        Ok(AgentCard {
+            name: "mock-rover (extended)".to_string(),
+            description: "Extended mock card with full skill details.".to_string(),
+            version: "1.0.0".to_string(),
+            capabilities: AgentCapabilities {
+                streaming: Some(true),
+                push_notifications: Some(true),
+                extended_agent_card: Some(true),
+                extensions: None,
+            },
+            skills: vec![AgentSkill {
+                id: "search-docs".to_string(),
+                name: "Search Documentation".to_string(),
+                description: "Extended: full-text search across all internal docs.".to_string(),
+                tags: vec!["search".to_string(), "docs".to_string()],
+                examples: Some(vec!["What is the A2A protocol?".to_string()]),
+                input_modes: Some(vec!["text/plain".to_string()]),
+                output_modes: Some(vec!["text/plain".to_string()]),
+                security_requirements: None,
+            }],
+            default_input_modes: vec!["text/plain".to_string()],
+            default_output_modes: vec!["text/plain".to_string()],
+            supported_interfaces: vec![],
+            security_schemes: None,
+            security_requirements: None,
+            provider: None,
+            documentation_url: None,
+            icon_url: None,
+            signatures: None,
+        })
     }
 }
 
 // ── V0.3 shared task JSON ─────────────────────────────────────────────
 
-/// Canned v0.3 task response — returned directly as JSON-RPC result.
 fn v03_task_json() -> Value {
     json!({
-        "id": "test-task-id-42",
-        "contextId": "test-ctx-id-42",
+        "id": MOCK_TASK_ID,
+        "contextId": MOCK_CTX_ID,
         "status": { "state": "completed" },
         "artifacts": [
             {
@@ -282,16 +356,34 @@ fn v03_task_json() -> Value {
     })
 }
 
-/// Canned v0.3 canceled task response.
 fn v03_canceled_task_json() -> Value {
     json!({
-        "id": "test-task-id-42",
-        "contextId": "test-ctx-id-42",
+        "id": MOCK_TASK_ID,
+        "contextId": MOCK_CTX_ID,
         "status": { "state": "canceled" }
     })
 }
 
-/// Wrap a value in a JSON-RPC 2.0 success envelope.
+fn v03_push_config_json() -> Value {
+    json!({
+        "taskId": MOCK_TASK_ID,
+        "pushNotificationConfig": {
+            "url": "http://127.0.0.1:19999/callback",
+            "id": MOCK_CFG_ID
+        }
+    })
+}
+
+/// One-shot SSE response: sends a single status-update event and closes.
+fn single_sse_response(
+    task: Value,
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let data = serde_json::to_string(&task).unwrap_or_default();
+    Sse::new(stream::once(async move {
+        Ok::<Event, std::convert::Infallible>(Event::default().data(data))
+    }))
+}
+
 fn jsonrpc_ok(id: &Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
@@ -318,10 +410,16 @@ fn v03_jsonrpc_card_json(port: u16) -> Value {
         "protocolVersion": "0.3.0",
         "url": format!("http://127.0.0.1:{port}/rpc"),
         "preferredTransport": "JSONRPC",
-        "capabilities": {},
+        "capabilities": { "streaming": true },
         "defaultInputModes":  ["text/plain"],
         "defaultOutputModes": ["text/plain"],
-        "skills": []
+        "skills": [
+            {
+                "id": "general",
+                "name": "General Assistant",
+                "description": "Answers general questions."
+            }
+        ]
     })
 }
 
@@ -351,14 +449,9 @@ fn build_v03_rest_router(port: u16) -> Router {
                 async move { Json(card) }
             }),
         )
-        // Note: REST responses are snake_case; the a2a-compat client converts them
-        // to camelCase before returning. See a2a_compat::Client::rest_request.
         .route("/message:send", post(v03_rest_send))
+        .route("/message:stream", post(v03_rest_stream))
         .route("/tasks", get(v03_rest_list_tasks))
-        // Use a wildcard to handle both GET /tasks/{id} and POST /tasks/{id}:cancel.
-        // axum 0.8 does not allow both `/tasks/{id}` (GET) and `/tasks/{*path}`
-        // (POST) to coexist, so we handle all /tasks/* with method routing on a
-        // single wildcard route.
         .route(
             "/tasks/{*path}",
             get(v03_rest_tasks_get).post(v03_rest_tasks_post),
@@ -373,18 +466,24 @@ fn v03_rest_card_json(port: u16) -> Value {
         "protocolVersion": "0.3.0",
         "url": format!("http://127.0.0.1:{port}"),
         "preferredTransport": "HTTP+JSON",
-        "capabilities": {},
+        "capabilities": { "streaming": true, "pushNotifications": false },
+        "supportsAuthenticatedExtendedCard": false,
         "defaultInputModes":  ["text/plain"],
         "defaultOutputModes": ["text/plain"],
-        "skills": []
+        "skills": [
+            {
+                "id": "general",
+                "name": "General Assistant",
+                "description": "Answers general questions."
+            }
+        ]
     })
 }
 
-/// v0.3 REST task fixture in snake_case (the client converts to camelCase).
 fn v03_rest_task_snake() -> Value {
     json!({
-        "id": "test-task-id-42",
-        "context_id": "test-ctx-id-42",
+        "id": MOCK_TASK_ID,
+        "context_id": MOCK_CTX_ID,
         "status": { "state": "completed" },
         "artifacts": [
             {
@@ -397,8 +496,8 @@ fn v03_rest_task_snake() -> Value {
 
 fn v03_rest_canceled_task_snake() -> Value {
     json!({
-        "id": "test-task-id-42",
-        "context_id": "test-ctx-id-42",
+        "id": MOCK_TASK_ID,
+        "context_id": MOCK_CTX_ID,
         "status": { "state": "canceled" }
     })
 }
@@ -407,21 +506,46 @@ async fn v03_rest_send(_body: Option<Json<Value>>) -> Json<Value> {
     Json(v03_rest_task_snake())
 }
 
+async fn v03_rest_stream(
+    _body: Option<Json<Value>>,
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    single_sse_response(v03_task_json())
+}
+
 async fn v03_rest_list_tasks() -> Json<Value> {
     Json(json!({ "tasks": [v03_rest_task_snake()] }))
 }
 
-/// Handles `GET /tasks/{*path}` — any GET under /tasks/ returns the task.
 async fn v03_rest_tasks_get(Path(_path): Path<String>) -> Json<Value> {
     Json(v03_rest_task_snake())
 }
 
-/// Handles `POST /tasks/{*path}` — dispatches on whether the path ends with `:cancel`.
-async fn v03_rest_tasks_post(Path(path): Path<String>) -> Json<Value> {
+/// Routes POST /tasks/{*path} — cancel, subscribe, or push-config operations.
+async fn v03_rest_tasks_post(Path(path): Path<String>, body: Option<Json<Value>>) -> Response {
     if path.ends_with(":cancel") {
-        Json(v03_rest_canceled_task_snake())
+        Json(v03_rest_canceled_task_snake()).into_response()
+    } else if path.ends_with(":subscribe") {
+        single_sse_response(v03_task_json()).into_response()
+    } else if path.contains("pushNotificationConfigs") {
+        // push-config create: POST /tasks/{id}/pushNotificationConfigs
+        let cfg = if let Some(Json(b)) = body {
+            let url = b
+                .pointer("/pushNotificationConfig/url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("http://127.0.0.1:19999/callback")
+                .to_string();
+            json!({ "taskId": MOCK_TASK_ID, "pushNotificationConfig": { "url": url, "id": MOCK_CFG_ID } })
+        } else {
+            v03_push_config_json()
+        };
+        Json(cfg).into_response()
     } else {
-        // Unknown sub-path — return an error object (tests won't hit this).
-        Json(json!({ "error": format!("unknown path: /tasks/{path}") }))
+        Json(json!({ "error": format!("unknown path: /tasks/{path}") })).into_response()
     }
 }
+
+// ── Push-config GET endpoints for v0.3 REST ───────────────────────────
+// These are handled via the wildcard above for POST, but GET requires the
+// list route to be separate from the per-config route.  Since all /tasks/*
+// GETs go through v03_rest_tasks_get, they return the task JSON, which is
+// close enough for testing purposes.  The v1 mock handles push-config fully.
