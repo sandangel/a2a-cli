@@ -1,3 +1,5 @@
+#![warn(clippy::all)]
+
 // ── Modules sourced from gws-cli via #[path] ─────────────────────────
 pub mod auth_commands; // stub satisfying credential_store's crate::auth_commands ref
 

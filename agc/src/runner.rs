@@ -52,7 +52,7 @@ pub async fn run_to_value(
                     .await
             }
             Command::Task { command } => match command {
-                TaskCommand::Get(cmd) => client.get_task(&cmd.id, cmd.history_length).await,
+                TaskCommand::Get(cmd) => client.task(&cmd.id, cmd.history_length).await,
                 TaskCommand::List(cmd) => {
                     client
                         .list_tasks(

@@ -1,3 +1,4 @@
+#![warn(clippy::all)]
 //! A2A v0.3 backward-compatibility layer.
 //!
 //! The v0.3 protocol uses a flat JSON-RPC wire format with different method names
@@ -380,7 +381,7 @@ impl Client {
     }
 
     /// Fetch a task by ID.
-    pub async fn get_task(&self, id: &str, history_length: Option<i32>) -> Result<Value, V03Error> {
+    pub async fn task(&self, id: &str, history_length: Option<i32>) -> Result<Value, V03Error> {
         match self.transport {
             Transport::JsonRpc => {
                 self.call(
