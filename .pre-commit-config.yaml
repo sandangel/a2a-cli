@@ -3,4 +3,4 @@ repos:
     rev: v1.0
     hooks:
       - id: clippy
-        args: ["-p", "agc", "--no-deps", "--", "-D", "warnings"]
+        args: ["-p", "agc", "-p", "a2a-compat", "--no-deps", "--", "-D", "warnings"]
