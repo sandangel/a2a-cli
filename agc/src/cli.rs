@@ -17,7 +17,7 @@ use crate::commands::{
 #[command(
     name = "agc",
     version,
-    about = "Agent CLI — send messages to A2A agents from AI coding tools\n\nQuick start:\n  agc agent list                        # see registered agents\n  agc send \"Summarise the latest PR\"     # send to active agent\n  agc --agent prod send \"Status?\"        # send to named agent\n  agc --all send \"Health check?\"         # all agents in parallel"
+    about = "Agent CLI — send messages to A2A agents from AI coding tools\n\nQuick start:\n  agc agent list                        # see registered agents\n  agc send \"Summarise the latest PR\"     # send to active agent\n  agc --agent rover send \"Status?\"       # send to named agent\n  agc --all send \"Health check?\"         # all agents in parallel"
 )]
 pub struct Cli {
     #[command(flatten)]

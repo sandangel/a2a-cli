@@ -189,7 +189,7 @@ agc task list                        # recent tasks
 agc task list --status working
 agc task list --context-id <id>
 agc task cancel <id>                  # CONFIRM WITH USER before running
-agc task subscribe <id>                    # stream live task updates (SSE)
+agc task subscribe <id>               # stream live task updates (SSE)
 ```
 
 ## Agent Card
