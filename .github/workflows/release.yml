@@ -1,15 +1,15 @@
 # Release workflow for @rover/agent-cli
 #
-# Two entry points:
+# Triggered manually: Actions → Release → Run workflow → choose "release" or "rc".
 #
-#   1. workflow_dispatch — choose "release" or "rc".
-#      The plan job uses git-cliff to detect the next semver from
-#      conventional commits, then pushes the tag. The tag push
-#      re-triggers this same workflow (entry point 2).
+# Tagging rules:
+#   rc      — tags HEAD of main as v{next}-rc.{N} (auto-increment)
+#   release — retags the latest RC commit as v{next} (no new code enters)
 #
-#   2. push: tag — builds platform binaries, generates a changelog
-#      with git-cliff, creates a GitHub Release, and publishes to npm
-#      (release tags only, not rc).
+# Changelog range (prev_tag → tag):
+#   release      — latest stable release → new release tag
+#   rc.1         — latest stable release → new rc tag
+#   rc.N (N≥2)   — previous rc tag (rc.N-1) → new rc tag
 
 name: Release
 
@@ -28,27 +28,12 @@ on:
         options:
           - release
           - rc
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── plan ──────────────────────────────────────────────────────────────────
-  # On workflow_dispatch: determine next version, push tag, then exit.
-  #   The tag push re-triggers this workflow at the "push: tags" entry point.
-  # On tag push: extract version/prerelease/prev_tag from the tag name.
-  #
-  # Tagging rules:
-  #   rc      — tag HEAD of main as v{next}-rc.{N} (auto-increment)
-  #   release — retag the latest RC commit as v{next} (no new code)
-  #
-  # Changelog range (prev_tag → tag):
-  #   release      — latest stable release → new release tag
-  #   rc.1         — latest stable release → new rc tag
-  #   rc.N (N≥2)   — previous rc tag (rc.N-1) → new rc tag
+  # ── plan ────────────────────────────────────────────────────────────────────
   plan:
     runs-on: ubuntu-latest
     outputs:
@@ -62,13 +47,11 @@ jobs:
           fetch-depth: 0
 
       - name: Install git-cliff
-        if: github.event_name == 'workflow_dispatch'
         uses: taiki-e/install-action@v2
         with:
           tool: git-cliff
 
-      - name: Bump version and push tag
-        if: github.event_name == 'workflow_dispatch'
+      - name: Determine version and push tag
         id: bump
         run: |
           NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//')
@@ -106,20 +89,15 @@ jobs:
           git push origin "$TAG"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve tag metadata
+      - name: Resolve metadata
         id: meta
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ steps.bump.outputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
+          TAG="${{ steps.bump.outputs.tag }}"
           VERSION="${TAG#v}"
           echo "tag=${TAG}"         >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-          # Determine the previous tag for the changelog range
-          # Latest stable = highest vX.Y.Z tag without a pre-release suffix
+          # Latest stable = highest vX.Y.Z without a pre-release suffix
           LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
             | grep -v '\-' | sort -V | grep -v "^${TAG}$" | tail -1)
 
@@ -128,26 +106,21 @@ jobs:
             BASE="${VERSION%-rc.*}"
             N="${VERSION##*-rc.}"
             if [ "$N" = "1" ]; then
-              # First RC: diff against latest stable release
               PREV="$LATEST_STABLE"
             else
-              # Subsequent RC: diff against previous RC
               PREV="v${BASE}-rc.$((N - 1))"
             fi
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            # Release: diff against latest stable release
             PREV="$LATEST_STABLE"
           fi
 
           echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
-          echo "prev_tag=${PREV}, tag=${TAG}"
+          echo "resolved: tag=${TAG}, prev_tag=${PREV}"
 
-  # ── build ─────────────────────────────────────────────────────────────────
-  # Only runs on tag push (the workflow_dispatch run exits after plan).
+  # ── build ───────────────────────────────────────────────────────────────────
   build:
     needs: plan
-    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -180,6 +153,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
+          ref: ${{ needs.plan.outputs.tag }}   # build from tagged commit
           submodules: false
 
       - name: Checkout submodules (SSH → HTTPS)
@@ -190,7 +164,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
-          rustflags: ""  # don't treat warnings as errors in cross-compile targets
+          rustflags: ""
 
       - name: Install cross
         if: matrix.cross == true
@@ -239,15 +213,15 @@ jobs:
             agc-${{ matrix.target }}.${{ matrix.archive }}
             agc-${{ matrix.target }}.${{ matrix.archive }}.sha256
 
-  # ── release ───────────────────────────────────────────────────────────────
+  # ── release ─────────────────────────────────────────────────────────────────
   release:
     needs: [plan, build]
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          fetch-depth: 0   # git-cliff needs full history
+          ref: ${{ needs.plan.outputs.tag }}
+          fetch-depth: 0
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
@@ -280,22 +254,20 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          # Stamp the tag into the download URLs, then append the changelog
           TAG="${{ needs.plan.outputs.tag }}"
           sed "s|TAG|${TAG}|g" .github/release-header.md > release-notes.md
           cat changelog-release.md >> release-notes.md
 
           gh release create "${TAG}" \
-            --target "${{ github.sha }}" \
             --title "${TAG}" \
             --notes-file release-notes.md \
             $PRERELEASE_FLAG \
             artifacts/*
 
-  # ── publish-npm ───────────────────────────────────────────────────────────
+  # ── publish-npm ─────────────────────────────────────────────────────────────
   publish-npm:
     needs: [plan, release]
-    if: github.event_name == 'push' && needs.plan.outputs.prerelease == 'false'
+    if: needs.plan.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -316,27 +288,22 @@ jobs:
         run: |
           VERSION="${{ needs.plan.outputs.version }}"
 
-          # darwin-arm64
           mkdir -p npm/packages/@rover/agent-cli-darwin-arm64/bin
           tar xzf artifacts/agc-aarch64-apple-darwin.tar.gz -C npm/packages/@rover/agent-cli-darwin-arm64/bin ./agc
           chmod +x npm/packages/@rover/agent-cli-darwin-arm64/bin/agc
 
-          # darwin-x64
           mkdir -p npm/packages/@rover/agent-cli-darwin-x64/bin
           tar xzf artifacts/agc-x86_64-apple-darwin.tar.gz -C npm/packages/@rover/agent-cli-darwin-x64/bin ./agc
           chmod +x npm/packages/@rover/agent-cli-darwin-x64/bin/agc
 
-          # linux-arm64 (gnu)
           mkdir -p npm/packages/@rover/agent-cli-linux-arm64/bin
           tar xzf artifacts/agc-aarch64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/agent-cli-linux-arm64/bin ./agc
           chmod +x npm/packages/@rover/agent-cli-linux-arm64/bin/agc
 
-          # linux-x64 (gnu)
           mkdir -p npm/packages/@rover/agent-cli-linux-x64/bin
           tar xzf artifacts/agc-x86_64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/agent-cli-linux-x64/bin ./agc
           chmod +x npm/packages/@rover/agent-cli-linux-x64/bin/agc
 
-          # win32-x64
           mkdir -p npm/packages/@rover/agent-cli-win32-x64/bin
           unzip -j artifacts/agc-x86_64-pc-windows-msvc.zip "*/agc.exe" -d npm/packages/@rover/agent-cli-win32-x64/bin/
 
