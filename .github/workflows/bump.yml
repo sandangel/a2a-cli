@@ -1,0 +1,68 @@
+# Tag a new release version based on conventional commits.
+#
+# Run this manually via Actions → "Bump version" → Run workflow.
+# It determines the next semver from commits since the last tag using
+# git-cliff, then pushes either a release tag (v1.2.3) or an RC tag
+# (v1.2.3-rc.1, auto-incrementing if a prior RC for that version exists).
+
+name: Bump version
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        type: choice
+        options:
+          - release
+          - rc
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0   # full history required for git-cliff
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Determine next version
+        id: version
+        run: |
+          NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//')
+          if [ -z "$NEXT" ]; then
+            echo "::error::git-cliff could not determine next version — no conventional commits found since last tag"
+            exit 1
+          fi
+
+          if [ "${{ inputs.release_type }}" = "rc" ]; then
+            # Auto-increment RC number for this base version
+            LATEST=$(git tag -l "v${NEXT}-rc.*" | sort -V | tail -1)
+            if [ -z "$LATEST" ]; then
+              N=1
+            else
+              N=$(echo "$LATEST" | grep -oP '(?<=rc\.)\d+$')
+              N=$((N + 1))
+            fi
+            TAG="v${NEXT}-rc.${N}"
+          else
+            TAG="v${NEXT}"
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Next tag: ${TAG}"
+
+      - name: Push tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"

@@ -133,6 +133,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0   # full history required for git-cliff
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate changelog
+        run: |
+          git-cliff --tag "${{ github.ref_name }}" --unreleased --strip header \
+            -o changelog-release.md
+          echo "--- changelog ---"
+          cat changelog-release.md
 
       - uses: actions/download-artifact@v4
         with:
@@ -149,40 +163,40 @@ jobs:
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          NOTES="## Installation
+          INSTALL_NOTES="## Installation
 
-          ### npm (recommended)
+### npm (recommended)
 
-          \`\`\`bash
-          npm install -g @rover/agent-cli
-          \`\`\`
+\`\`\`bash
+npm install -g @rover/agent-cli
+\`\`\`
 
-          ### Direct download
+### Direct download
 
-          Download the archive for your OS and architecture from the assets below.
+Replace \`<target>\` with your platform (e.g., \`aarch64-apple-darwin\` or \`x86_64-unknown-linux-gnu\`).
 
-          Replace \`<target>\` with your platform (e.g., \`aarch64-apple-darwin\` or \`x86_64-unknown-linux-gnu\`).
+\`\`\`bash
+# 1. Download the archive and its checksum
+curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz
+curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz.sha256
 
-          \`\`\`bash
-          # 1. Download the archive and its checksum
-          curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz
-          curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz.sha256
+# 2. Verify the checksum
+shasum -a 256 -c agc-<target>.tar.gz.sha256
 
-          # 2. Verify the checksum
-          shasum -a 256 -c agc-<target>.tar.gz.sha256
+# 3. Extract and install
+tar -xzf agc-<target>.tar.gz
+chmod +x agc
+sudo mv agc /usr/local/bin/
+\`\`\`
+"
 
-          # 3. Extract and install
-          tar -xzf agc-<target>.tar.gz
-          chmod +x agc
-          sudo mv agc /usr/local/bin/
-          \`\`\`
-          "
+          # Prepend installation notes to the git-cliff changelog
+          { echo "$INSTALL_NOTES"; echo "---"; echo ""; cat changelog-release.md; } > release-notes.md
 
           gh release create "${{ github.ref_name }}" \
             --target "${{ github.sha }}" \
             --title "${{ github.ref_name }}" \
-            --notes "$NOTES" \
-            --generate-notes \
+            --notes-file release-notes.md \
             $PRERELEASE_FLAG \
             artifacts/*
 
