@@ -281,8 +281,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
-          registry-url: 'https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release'
-          scope: '@rover'
+
+      - name: Authenticate to Artifactory
+        id: auth
+        uses: sg-innersource/artifactory-oidc-access@v2.0.12
+
+      - name: Configure npm registry
+        run: |
+          REGISTRY="https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
+          npm config set @rover:registry "${REGISTRY}"
+          npm config set "${REGISTRY}:_authToken" "${{ steps.auth.outputs.artifactory-token }}"
 
       - uses: actions/download-artifact@v4
         with:
@@ -334,11 +342,7 @@ jobs:
           for pkg in npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
             npm publish "$pkg"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish main package
         working-directory: npm
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
