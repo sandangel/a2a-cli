@@ -56,8 +56,14 @@ jobs:
         run: |
           NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//')
           if [ -z "$NEXT" ]; then
-            echo "::error::git-cliff could not determine next version — no conventional commits found since last tag"
-            exit 1
+            LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -1)
+            if [ -z "$LATEST_TAG" ]; then
+              # No tags yet and no bumpable commits — start at 0.1.0
+              NEXT="0.1.0"
+            else
+              echo "::error::No releasable commits found since ${LATEST_TAG}"
+              exit 1
+            fi
           fi
 
           git config user.name  "github-actions[bot]"
