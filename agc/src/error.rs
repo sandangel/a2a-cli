@@ -87,7 +87,9 @@ mod tests {
 
     #[test]
     fn exit_code_json_error() {
-        let e: AgcError = serde_json::from_str::<serde_json::Value>("bad").unwrap_err().into();
+        let e: AgcError = serde_json::from_str::<serde_json::Value>("bad")
+            .unwrap_err()
+            .into();
         assert_eq!(e.exit_code(), 5);
     }
 }

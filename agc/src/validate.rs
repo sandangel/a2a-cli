@@ -32,7 +32,9 @@ pub fn validate_agent_url(url: &str) -> Result<()> {
 
 pub fn validate_alias(alias: &str) -> Result<()> {
     if alias.is_empty() {
-        return Err(AgcError::InvalidInput("alias must not be empty".to_string()));
+        return Err(AgcError::InvalidInput(
+            "alias must not be empty".to_string(),
+        ));
     }
     reject_dangerous_chars(alias, "alias")?;
     if alias.contains('/') || alias.contains('\\') {

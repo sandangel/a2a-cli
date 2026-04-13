@@ -73,16 +73,14 @@ pub fn load() -> Result<Config> {
     }
     let data = std::fs::read_to_string(&path)
         .map_err(|e| AgcError::Config(format!("read config: {e}")))?;
-    serde_yaml::from_str(&data)
-        .map_err(|e| AgcError::Config(format!("parse config: {e}")))
+    serde_yaml::from_str(&data).map_err(|e| AgcError::Config(format!("parse config: {e}")))
 }
 
 pub fn save(cfg: &Config) -> Result<()> {
     let path = config_path()?;
     let data = serde_yaml::to_string(cfg)
         .map_err(|e| AgcError::Config(format!("serialize config: {e}")))?;
-    atomic_write(&path, data.as_bytes())
-        .map_err(|e| AgcError::Config(format!("write config: {e}")))
+    atomic_write(&path, data.as_bytes()).map_err(|e| AgcError::Config(format!("write config: {e}")))
 }
 
 // ── Helpers on Config ─────────────────────────────────────────────────
@@ -132,7 +130,8 @@ mod tests {
     #[test]
     fn resolve_agent_by_known_alias() {
         let mut cfg = Config::default();
-        cfg.agents.insert("prod".to_string(), make_agent("https://prod.example.com"));
+        cfg.agents
+            .insert("prod".to_string(), make_agent("https://prod.example.com"));
         let a = cfg.resolve_agent("prod").unwrap();
         assert_eq!(a.url, "https://prod.example.com");
     }
@@ -163,7 +162,8 @@ mod tests {
     fn active_agent_returns_current() {
         let mut cfg = Config::default();
         cfg.current_agent = "prod".to_string();
-        cfg.agents.insert("prod".to_string(), make_agent("https://prod.example.com"));
+        cfg.agents
+            .insert("prod".to_string(), make_agent("https://prod.example.com"));
         let (alias, agent) = cfg.active_agent().unwrap();
         assert_eq!(alias, "prod");
         assert_eq!(agent.url, "https://prod.example.com");
@@ -191,13 +191,19 @@ mod tests {
 
     #[test]
     fn oauth_config_not_empty_with_client_id() {
-        let c = OAuthConfig { client_id: "id".to_string(), scopes: vec![] };
+        let c = OAuthConfig {
+            client_id: "id".to_string(),
+            scopes: vec![],
+        };
         assert!(!c.is_empty());
     }
 
     #[test]
     fn oauth_config_not_empty_with_scopes() {
-        let c = OAuthConfig { client_id: String::new(), scopes: vec!["openid".to_string()] };
+        let c = OAuthConfig {
+            client_id: String::new(),
+            scopes: vec!["openid".to_string()],
+        };
         assert!(!c.is_empty());
     }
 

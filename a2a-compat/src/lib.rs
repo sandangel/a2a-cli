@@ -106,9 +106,7 @@ pub fn is_v03(raw: &Value) -> bool {
 /// Extract the endpoint URL declared in a v0.3 card (`url` field).
 /// Falls back to `base_url` when the card does not include a `url` field.
 pub fn rpc_url_from_card<'a>(raw: &'a Value, base_url: &'a str) -> &'a str {
-    raw.get("url")
-        .and_then(|u| u.as_str())
-        .unwrap_or(base_url)
+    raw.get("url").and_then(|u| u.as_str()).unwrap_or(base_url)
 }
 
 // ── Key transformation ─────────────────────────────────────────────────
@@ -170,7 +168,7 @@ fn snake_to_camel(s: &str) -> String {
 /// - `url` + `preferredTransport` → `supportedInterfaces`
 /// - `type: "oauth2"` security schemes → `oauth2SecurityScheme` wrapper
 pub fn normalize_card(raw: &Value) -> Result<AgentCard, V03Error> {
-    use serde_json::{json, Map};
+    use serde_json::{Map, json};
 
     let mut v1 = raw.as_object().cloned().unwrap_or_default();
 
@@ -202,7 +200,11 @@ pub fn normalize_card(raw: &Value) -> Result<AgentCard, V03Error> {
     }
 
     // Normalize security schemes: v0.3 uses `type: "oauth2"`, v1 uses `oauth2SecurityScheme`.
-    if let Some(schemes) = v1.get("securitySchemes").and_then(|s| s.as_object()).cloned() {
+    if let Some(schemes) = v1
+        .get("securitySchemes")
+        .and_then(|s| s.as_object())
+        .cloned()
+    {
         let mut normalized: Map<String, Value> = Map::new();
         for (name, scheme) in &schemes {
             if scheme.get("oauth2SecurityScheme").is_some() {
@@ -218,8 +220,7 @@ pub fn normalize_card(raw: &Value) -> Result<AgentCard, V03Error> {
         v1.insert("securitySchemes".into(), Value::Object(normalized));
     }
 
-    serde_json::from_value(Value::Object(v1))
-        .map_err(|e| V03Error::CardParse(e.to_string()))
+    serde_json::from_value(Value::Object(v1)).map_err(|e| V03Error::CardParse(e.to_string()))
 }
 
 // ── Message parameters ─────────────────────────────────────────────────
@@ -288,9 +289,17 @@ impl Client {
     /// - `transport` selects the wire protocol: use [`transport_from_card`] to
     ///   detect the correct value from the agent card.
     /// - `bearer` is attached as `Authorization: Bearer <token>` on every request.
-    pub fn new(base_url: &str, bearer: Option<&str>, transport: Transport) -> Result<Self, V03Error> {
+    pub fn new(
+        base_url: &str,
+        bearer: Option<&str>,
+        transport: Transport,
+    ) -> Result<Self, V03Error> {
         let http = build_http_client(bearer)?;
-        Ok(Self { base_url: base_url.to_string(), transport, http })
+        Ok(Self {
+            base_url: base_url.to_string(),
+            transport,
+            http,
+        })
     }
 
     // ── JSON-RPC helpers ──────────────────────────────────────────────
@@ -314,7 +323,10 @@ impl Client {
             .await?;
 
         if let Some(err) = json.get("error") {
-            let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+            let msg = err
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error");
             return Err(V03Error::Rpc(format!("jsonrpc error: {msg}")));
         }
         Ok(json.get("result").cloned().unwrap_or(json))
@@ -383,7 +395,8 @@ impl Client {
                 if let Some(ref hl) = hl_str {
                     query.push(("historyLength", hl.as_str()));
                 }
-                self.rest_request("GET", &format!("/tasks/{id}"), None, &query).await
+                self.rest_request("GET", &format!("/tasks/{id}"), None, &query)
+                    .await
             }
         }
     }
@@ -423,10 +436,12 @@ impl Client {
     pub async fn cancel_task(&self, id: &str) -> Result<Value, V03Error> {
         match self.transport {
             Transport::JsonRpc => {
-                self.call("tasks/cancel", serde_json::json!({ "id": id })).await
+                self.call("tasks/cancel", serde_json::json!({ "id": id }))
+                    .await
             }
             Transport::Rest => {
-                self.rest_request("POST", &format!("/tasks/{id}:cancel"), None, &[]).await
+                self.rest_request("POST", &format!("/tasks/{id}:cancel"), None, &[])
+                    .await
             }
         }
     }
@@ -439,7 +454,8 @@ impl Client {
     ) -> Result<(), SseError<E>> {
         match self.transport {
             Transport::JsonRpc => {
-                self.stream_jsonrpc_sse("message/stream", params.to_json(), on_event).await
+                self.stream_jsonrpc_sse("message/stream", params.to_json(), on_event)
+                    .await
             }
             Transport::Rest => {
                 self.stream_rest_sse("/message:stream", Some(params.to_snake_json()), on_event)
@@ -464,7 +480,8 @@ impl Client {
                 .await
             }
             Transport::Rest => {
-                self.stream_rest_sse(&format!("/tasks/{id}:subscribe"), None, on_event).await
+                self.stream_rest_sse(&format!("/tasks/{id}:subscribe"), None, on_event)
+                    .await
             }
         }
     }
@@ -496,7 +513,9 @@ impl Client {
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SseError::Protocol(V03Error::Rpc(format!("HTTP {status}: {text}"))));
+            return Err(SseError::Protocol(V03Error::Rpc(format!(
+                "HTTP {status}: {text}"
+            ))));
         }
 
         // Unwrap JSON-RPC envelope: { "result": <event> } or { "error": {...} }
@@ -504,8 +523,13 @@ impl Client {
             if let Some(result) = frame.get("result").cloned() {
                 on_event(result).map_err(SseError::Callback)
             } else if let Some(err) = frame.get("error") {
-                let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
-                Err(SseError::Protocol(V03Error::Rpc(format!("jsonrpc error: {msg}"))))
+                let msg = err
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown error");
+                Err(SseError::Protocol(V03Error::Rpc(format!(
+                    "jsonrpc error: {msg}"
+                ))))
             } else {
                 Ok(()) // keep-alive or unrecognised frame — skip
             }
@@ -533,7 +557,9 @@ impl Client {
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SseError::Protocol(V03Error::Rpc(format!("HTTP {status}: {text}"))));
+            return Err(SseError::Protocol(V03Error::Rpc(format!(
+                "HTTP {status}: {text}"
+            ))));
         }
 
         // REST events are snake_case; normalise to camelCase before forwarding.
@@ -552,7 +578,9 @@ async fn parse_sse_stream<E>(
     resp: reqwest::Response,
     mut on_line: impl FnMut(Value) -> Result<(), SseError<E>>,
 ) -> Result<(), SseError<E>> {
-    let byte_stream = resp.bytes_stream().map(|r| r.map_err(std::io::Error::other));
+    let byte_stream = resp
+        .bytes_stream()
+        .map(|r| r.map_err(std::io::Error::other));
     let mut reader = tokio::io::BufReader::new(StreamReader::new(byte_stream));
     let mut line = String::new();
     loop {
@@ -636,7 +664,10 @@ mod tests {
 
     #[test]
     fn transport_from_card_missing_defaults_to_jsonrpc() {
-        assert_eq!(transport_from_card(&serde_json::json!({})), Transport::JsonRpc);
+        assert_eq!(
+            transport_from_card(&serde_json::json!({})),
+            Transport::JsonRpc
+        );
     }
 
     // ── rpc_url_from_card ─────────────────────────────────────────────
@@ -644,13 +675,19 @@ mod tests {
     #[test]
     fn rpc_url_from_card_uses_url_field() {
         let raw = serde_json::json!({"url": "https://example.com/rpc"});
-        assert_eq!(rpc_url_from_card(&raw, "https://fallback.example.com"), "https://example.com/rpc");
+        assert_eq!(
+            rpc_url_from_card(&raw, "https://fallback.example.com"),
+            "https://example.com/rpc"
+        );
     }
 
     #[test]
     fn rpc_url_from_card_falls_back_to_base() {
         let raw = serde_json::json!({"name": "Agent"});
-        assert_eq!(rpc_url_from_card(&raw, "https://fallback.example.com"), "https://fallback.example.com");
+        assert_eq!(
+            rpc_url_from_card(&raw, "https://fallback.example.com"),
+            "https://fallback.example.com"
+        );
     }
 
     // ── camel_to_snake / snake_to_camel ───────────────────────────────
@@ -660,7 +697,10 @@ mod tests {
         assert_eq!(camel_to_snake("messageId"), "message_id");
         assert_eq!(camel_to_snake("contextId"), "context_id");
         assert_eq!(camel_to_snake("historyLength"), "history_length");
-        assert_eq!(camel_to_snake("acceptedOutputModes"), "accepted_output_modes");
+        assert_eq!(
+            camel_to_snake("acceptedOutputModes"),
+            "accepted_output_modes"
+        );
         assert_eq!(camel_to_snake("role"), "role"); // no change
     }
 
@@ -739,7 +779,10 @@ mod tests {
             "protocolVersion": "1.0"
         }]);
         let card = normalize_card(&raw).unwrap();
-        assert_eq!(card.supported_interfaces[0].url, "https://other.example.com/rpc");
+        assert_eq!(
+            card.supported_interfaces[0].url,
+            "https://other.example.com/rpc"
+        );
     }
 
     #[test]

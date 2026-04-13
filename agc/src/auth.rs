@@ -9,10 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine;
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, Scope,
-    TokenUrl,
+    AuthUrl, ClientId, ClientSecret, DeviceAuthorizationUrl, Scope, TokenUrl,
     devicecode::StandardDeviceAuthorizationResponse,
-    DeviceAuthorizationUrl,
 };
 use rand::RngCore;
 use serde_json::Value;
@@ -26,9 +24,20 @@ use crate::token_store::{Token, delete_token, load_token, save_token};
 
 #[derive(Debug, Clone)]
 pub enum OAuthFlow {
-    AuthorizationCode { auth_url: String, token_url: String, scopes: Vec<String> },
-    DeviceCode { device_auth_url: String, token_url: String, scopes: Vec<String> },
-    ClientCredentials { token_url: String, scopes: Vec<String> },
+    AuthorizationCode {
+        auth_url: String,
+        token_url: String,
+        scopes: Vec<String>,
+    },
+    DeviceCode {
+        device_auth_url: String,
+        token_url: String,
+        scopes: Vec<String>,
+    },
+    ClientCredentials {
+        token_url: String,
+        scopes: Vec<String>,
+    },
 }
 
 /// Extract OAuth flows from a raw agent card JSON value.
@@ -42,7 +51,8 @@ pub fn extract_oauth_flows(card: &Value) -> Vec<OAuthFlow> {
 
     for (_name, scheme) in schemes {
         // v1 format: { "oauth2SecurityScheme": { "flows": { ... } } }
-        let flows_val = scheme.get("oauth2SecurityScheme")
+        let flows_val = scheme
+            .get("oauth2SecurityScheme")
             .and_then(|o| o.get("flows"))
             // v0.3 format: { "type": "oauth2", "flows": { ... } }
             .or_else(|| {
@@ -53,7 +63,9 @@ pub fn extract_oauth_flows(card: &Value) -> Vec<OAuthFlow> {
                 }
             });
 
-        let Some(flows_obj) = flows_val.and_then(|f| f.as_object()) else { continue };
+        let Some(flows_obj) = flows_val.and_then(|f| f.as_object()) else {
+            continue;
+        };
 
         // Authorization Code
         if let Some(ac) = flows_obj.get("authorizationCode")
@@ -102,7 +114,10 @@ pub fn extract_oauth_flows(card: &Value) -> Vec<OAuthFlow> {
 fn extract_scope_names(scopes_val: Option<&Value>) -> Vec<String> {
     match scopes_val {
         Some(Value::Object(map)) => map.keys().cloned().collect(),
-        Some(Value::Array(arr)) => arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
         _ => vec![],
     }
 }
@@ -123,17 +138,52 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
 
     // Prefer auth code, then device code, then client credentials — use first declared flow.
     let token = match flows.first() {
-        Some(OAuthFlow::AuthorizationCode { auth_url, token_url, scopes }) => {
-            let cfg_scopes = if agent.oauth.scopes.is_empty() { scopes } else { &agent.oauth.scopes };
-            auth_code_pkce_flow(auth_url, token_url, &agent.oauth.client_id, cfg_scopes, agent_url).await?
+        Some(OAuthFlow::AuthorizationCode {
+            auth_url,
+            token_url,
+            scopes,
+        }) => {
+            let cfg_scopes = if agent.oauth.scopes.is_empty() {
+                scopes
+            } else {
+                &agent.oauth.scopes
+            };
+            auth_code_pkce_flow(
+                auth_url,
+                token_url,
+                &agent.oauth.client_id,
+                cfg_scopes,
+                agent_url,
+            )
+            .await?
         }
-        Some(OAuthFlow::DeviceCode { device_auth_url, token_url, scopes }) => {
-            let cfg_scopes = if agent.oauth.scopes.is_empty() { scopes } else { &agent.oauth.scopes };
-            device_code_flow(device_auth_url, token_url, &agent.oauth.client_id, cfg_scopes, agent_url).await?
+        Some(OAuthFlow::DeviceCode {
+            device_auth_url,
+            token_url,
+            scopes,
+        }) => {
+            let cfg_scopes = if agent.oauth.scopes.is_empty() {
+                scopes
+            } else {
+                &agent.oauth.scopes
+            };
+            device_code_flow(
+                device_auth_url,
+                token_url,
+                &agent.oauth.client_id,
+                cfg_scopes,
+                agent_url,
+            )
+            .await?
         }
         Some(OAuthFlow::ClientCredentials { token_url, scopes }) => {
-            let cfg_scopes = if agent.oauth.scopes.is_empty() { scopes } else { &agent.oauth.scopes };
-            client_credentials_flow(token_url, &agent.oauth.client_id, cfg_scopes, agent_url).await?
+            let cfg_scopes = if agent.oauth.scopes.is_empty() {
+                scopes
+            } else {
+                &agent.oauth.scopes
+            };
+            client_credentials_flow(token_url, &agent.oauth.client_id, cfg_scopes, agent_url)
+                .await?
         }
         None => return Ok(None),
     };
@@ -156,13 +206,25 @@ pub async fn refresh_if_expired(agent_url: &str, client_id: &str) -> Result<Opti
     if !token.is_expired() {
         return Ok(Some(token.access_token));
     }
-    let (Some(refresh_token), Some(token_url)) = (token.refresh_token.as_deref(), token.token_url.as_deref()) else {
+    let (Some(refresh_token), Some(token_url)) =
+        (token.refresh_token.as_deref(), token.token_url.as_deref())
+    else {
         return Ok(None);
     };
-    match do_refresh(token_url, client_id, refresh_token, &token.scopes, agent_url).await {
+    match do_refresh(
+        token_url,
+        client_id,
+        refresh_token,
+        &token.scopes,
+        agent_url,
+    )
+    .await
+    {
         Ok(new_token) => Ok(Some(new_token.access_token)),
         Err(e) => {
-            eprintln!("warning: token refresh failed ({e}); re-run `agc auth login` to re-authenticate");
+            eprintln!(
+                "warning: token refresh failed ({e}); re-run `agc auth login` to re-authenticate"
+            );
             Ok(None)
         }
     }
@@ -176,7 +238,8 @@ async fn do_refresh(
     agent_url: &str,
 ) -> Result<Token> {
     let http = reqwest::Client::new();
-    let resp = http.post(token_url)
+    let resp = http
+        .post(token_url)
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
@@ -186,7 +249,10 @@ async fn do_refresh(
         .await
         .map_err(AgcError::Http)?;
     if !resp.status().is_success() {
-        return Err(AgcError::Auth(format!("token refresh returned HTTP {}", resp.status())));
+        return Err(AgcError::Auth(format!(
+            "token refresh returned HTTP {}",
+            resp.status()
+        )));
     }
     let body: Value = resp.json().await.map_err(AgcError::Http)?;
     // Preserve the existing refresh_token if the server doesn't issue a new one.
@@ -208,7 +274,13 @@ pub struct TokenStatus {
 
 pub fn token_status(agent_url: &str) -> Result<TokenStatus> {
     match load_token(agent_url)? {
-        None => Ok(TokenStatus { authenticated: false, expired: false, expires_at: None, scopes: vec![], masked_token: None }),
+        None => Ok(TokenStatus {
+            authenticated: false,
+            expired: false,
+            expires_at: None,
+            scopes: vec![],
+            masked_token: None,
+        }),
         Some(t) => {
             let masked = Some(mask_token(&t.access_token));
             Ok(TokenStatus {
@@ -258,12 +330,20 @@ async fn auth_code_pkce_flow(
         ("code_challenge_method", "S256"),
     ];
     let scope_str = scopes.join(" ");
-    if !scope_str.is_empty() { params.push(("scope", &scope_str)); }
+    if !scope_str.is_empty() {
+        params.push(("scope", &scope_str));
+    }
     params.push(("code_challenge", &code_challenge));
     params.push(("state", &state));
 
-    let full_auth_url = format!("{}?{}", auth_url,
-        params.iter().map(|(k, v)| format!("{}={}", k, urlenccode(v))).collect::<Vec<_>>().join("&")
+    let full_auth_url = format!(
+        "{}?{}",
+        auth_url,
+        params
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, urlenccode(v)))
+            .collect::<Vec<_>>()
+            .join("&")
     );
 
     if open::that(&full_auth_url).is_ok() {
@@ -277,12 +357,15 @@ async fn auth_code_pkce_flow(
     let (code, returned_state) = wait_for_callback(listener).await?;
 
     if returned_state != state {
-        return Err(AgcError::Auth("OAuth state mismatch — possible CSRF".to_string()));
+        return Err(AgcError::Auth(
+            "OAuth state mismatch — possible CSRF".to_string(),
+        ));
     }
 
     // Exchange code for token.
     let http = reqwest::Client::new();
-    let resp = http.post(token_url)
+    let resp = http
+        .post(token_url)
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", &code),
@@ -305,22 +388,31 @@ async fn wait_for_callback(listener: tokio::net::TcpListener) -> Result<(String,
 
     eprintln!("Waiting for browser redirect...\n");
 
-    let (mut stream, _) = listener.accept().await
+    let (mut stream, _) = listener
+        .accept()
+        .await
         .map_err(|e| AgcError::Auth(format!("accept callback: {e}")))?;
 
     let mut reader = BufReader::new(&mut stream);
     let mut request_line = String::new();
-    reader.read_line(&mut request_line).await
+    reader
+        .read_line(&mut request_line)
+        .await
         .map_err(|e| AgcError::Auth(format!("read callback: {e}")))?;
 
     // Parse GET /callback?code=X&state=Y HTTP/1.1
     let path = request_line.split_whitespace().nth(1).unwrap_or("");
     let query = path.split('?').nth(1).unwrap_or("");
-    let params: HashMap<_, _> = query.split('&')
-        .filter_map(|p| { let mut s = p.splitn(2, '='); Some((s.next()?, s.next()?)) })
+    let params: HashMap<_, _> = query
+        .split('&')
+        .filter_map(|p| {
+            let mut s = p.splitn(2, '=');
+            Some((s.next()?, s.next()?))
+        })
         .collect();
 
-    let code = params.get("code")
+    let code = params
+        .get("code")
         .ok_or_else(|| AgcError::Auth("no code in callback".to_string()))?
         .to_string();
     let state = params.get("state").copied().unwrap_or("").to_string();
@@ -329,7 +421,8 @@ async fn wait_for_callback(listener: tokio::net::TcpListener) -> Result<(String,
     let body = "<html><head><meta charset=\"utf-8\"></head><body><h2>Authentication successful - you can close this tab.</h2></body></html>";
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(), body
+        body.len(),
+        body
     );
     let _ = stream.write_all(response.as_bytes()).await;
 
@@ -350,8 +443,10 @@ async fn device_code_flow(
         None,
         AuthUrl::new("https://placeholder.invalid/auth".to_string())
             .map_err(|e| AgcError::Auth(format!("auth URL: {e}")))?,
-        Some(TokenUrl::new(token_url.to_string())
-            .map_err(|e| AgcError::Auth(format!("token URL: {e}")))?),
+        Some(
+            TokenUrl::new(token_url.to_string())
+                .map_err(|e| AgcError::Auth(format!("token URL: {e}")))?,
+        ),
     )
     .set_device_authorization_url(
         DeviceAuthorizationUrl::new(device_auth_url.to_string())
@@ -366,7 +461,10 @@ async fn device_code_flow(
         .await
         .map_err(|e| AgcError::Auth(format!("device authorization: {e}")))?;
 
-    eprintln!("\nTo authenticate, visit: {}", details.verification_uri().as_str());
+    eprintln!(
+        "\nTo authenticate, visit: {}",
+        details.verification_uri().as_str()
+    );
     eprintln!("Enter code: {}\n", details.user_code().secret());
 
     let token_response = client
@@ -379,7 +477,9 @@ async fn device_code_flow(
     let token = Token {
         access_token: token_response.access_token().secret().clone(),
         refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
-        expires_at: token_response.expires_in().map(|d| unix_now() + d.as_secs()),
+        expires_at: token_response
+            .expires_in()
+            .map(|d| unix_now() + d.as_secs()),
         token_type: "Bearer".to_string(),
         scopes: scopes.to_vec(),
         token_url: Some(token_url.to_string()),
@@ -404,8 +504,10 @@ async fn client_credentials_flow(
         Some(ClientSecret::new(secret)),
         AuthUrl::new("https://placeholder.invalid/auth".to_string())
             .map_err(|e| AgcError::Auth(format!("auth URL: {e}")))?,
-        Some(TokenUrl::new(token_url.to_string())
-            .map_err(|e| AgcError::Auth(format!("token URL: {e}")))?),
+        Some(
+            TokenUrl::new(token_url.to_string())
+                .map_err(|e| AgcError::Auth(format!("token URL: {e}")))?,
+        ),
     );
 
     use oauth2::TokenResponse;
@@ -431,27 +533,39 @@ async fn client_credentials_flow(
 // ── Helpers ───────────────────────────────────────────────────────────
 
 fn token_from_json(body: &Value, scopes: &[String], token_url: Option<&str>) -> Result<Token> {
-    let access_token = body.get("access_token")
+    let access_token = body
+        .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AgcError::Auth(format!("no access_token in response: {body}")))?
         .to_string();
 
-    let expires_at = body.get("expires_in")
+    let expires_at = body
+        .get("expires_in")
         .and_then(|v| v.as_u64())
         .map(|secs| unix_now() + secs);
 
     Ok(Token {
         access_token,
-        refresh_token: body.get("refresh_token").and_then(|v| v.as_str()).map(str::to_string),
+        refresh_token: body
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         expires_at,
-        token_type: body.get("token_type").and_then(|v| v.as_str()).unwrap_or("Bearer").to_string(),
+        token_type: body
+            .get("token_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Bearer")
+            .to_string(),
         scopes: scopes.to_vec(),
         token_url: token_url.map(str::to_string),
     })
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -518,7 +632,11 @@ mod tests {
         let flows = extract_oauth_flows(&card_with_auth_code());
         assert_eq!(flows.len(), 1);
         match &flows[0] {
-            OAuthFlow::AuthorizationCode { auth_url, token_url, scopes } => {
+            OAuthFlow::AuthorizationCode {
+                auth_url,
+                token_url,
+                scopes,
+            } => {
                 assert_eq!(auth_url, "https://auth.example.com/authorize");
                 assert_eq!(token_url, "https://auth.example.com/token");
                 assert!(scopes.contains(&"openid".to_string()));
@@ -533,7 +651,11 @@ mod tests {
         let flows = extract_oauth_flows(&card_with_device_code());
         assert_eq!(flows.len(), 1);
         match &flows[0] {
-            OAuthFlow::DeviceCode { device_auth_url, token_url, scopes } => {
+            OAuthFlow::DeviceCode {
+                device_auth_url,
+                token_url,
+                scopes,
+            } => {
                 assert_eq!(device_auth_url, "https://auth.example.com/device");
                 assert_eq!(token_url, "https://auth.example.com/token");
                 assert!(scopes.contains(&"openid".to_string()));
@@ -650,7 +772,7 @@ mod tests {
 #[cfg(test)]
 mod refresh_tests {
     use super::*;
-    use crate::token_store::{load_token, save_token, Token};
+    use crate::token_store::{Token, load_token, save_token};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     /// RAII guard: saves an env var on creation and restores it on drop.
@@ -661,7 +783,9 @@ mod refresh_tests {
     impl EnvGuard {
         fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let original = std::env::var_os(name);
-            unsafe { std::env::set_var(name, value); }
+            unsafe {
+                std::env::set_var(name, value);
+            }
             Self { name, original }
         }
     }
@@ -669,7 +793,7 @@ mod refresh_tests {
         fn drop(&mut self) {
             match &self.original {
                 Some(v) => unsafe { std::env::set_var(self.name, v) },
-                None    => unsafe { std::env::remove_var(self.name) },
+                None => unsafe { std::env::remove_var(self.name) },
             }
         }
     }
@@ -716,7 +840,9 @@ mod refresh_tests {
         let url = format!("http://127.0.0.1:{port}/token");
 
         let handle = tokio::spawn(async move {
-            let Ok((stream, _)) = listener.accept().await else { return };
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
             let (read_half, mut write_half) = tokio::io::split(stream);
             let mut reader = BufReader::new(read_half);
 
@@ -742,7 +868,11 @@ mod refresh_tests {
                 let _ = reader.read_exact(&mut body_buf).await;
             }
 
-            let status_line = if status == 200 { "200 OK" } else { "400 Bad Request" };
+            let status_line = if status == 200 {
+                "200 OK"
+            } else {
+                "400 Bad Request"
+            };
             let resp = format!(
                 "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
                 response_body.len()
@@ -772,7 +902,9 @@ mod refresh_tests {
         let _env = EnvGuard::set("AGC_CONFIG_DIR", dir.path());
 
         save_token("http://valid.test/", &valid_token()).unwrap();
-        let result = refresh_if_expired("http://valid.test/", "client-id").await.unwrap();
+        let result = refresh_if_expired("http://valid.test/", "client-id")
+            .await
+            .unwrap();
         assert_eq!(result, Some("valid-access".to_string()));
     }
 
@@ -788,7 +920,9 @@ mod refresh_tests {
         )
         .unwrap();
 
-        let result = refresh_if_expired("http://no-refresh.test/", "client-id").await.unwrap();
+        let result = refresh_if_expired("http://no-refresh.test/", "client-id")
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -804,7 +938,9 @@ mod refresh_tests {
         )
         .unwrap();
 
-        let result = refresh_if_expired("http://no-token-url.test/", "client-id").await.unwrap();
+        let result = refresh_if_expired("http://no-token-url.test/", "client-id")
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -826,7 +962,9 @@ mod refresh_tests {
         )
         .unwrap();
 
-        let result = refresh_if_expired("http://refresh-ok.test/", "client-id").await.unwrap();
+        let result = refresh_if_expired("http://refresh-ok.test/", "client-id")
+            .await
+            .unwrap();
         assert_eq!(result, Some("new-access".to_string()));
 
         // Verify the new token was persisted.
@@ -843,8 +981,7 @@ mod refresh_tests {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvGuard::set("AGC_CONFIG_DIR", dir.path());
 
-        let (server_url, server) =
-            spawn_token_server(400, r#"{"error":"invalid_grant"}"#).await;
+        let (server_url, server) = spawn_token_server(400, r#"{"error":"invalid_grant"}"#).await;
 
         save_token(
             "http://refresh-fail.test/",
@@ -933,8 +1070,7 @@ mod refresh_tests {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvGuard::set("AGC_CONFIG_DIR", dir.path());
 
-        let (server_url, server) =
-            spawn_token_server(400, r#"{"error":"invalid_grant"}"#).await;
+        let (server_url, server) = spawn_token_server(400, r#"{"error":"invalid_grant"}"#).await;
 
         let result = do_refresh(
             &server_url,

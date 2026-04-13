@@ -9,12 +9,17 @@ use crate::formatter::{OutputFormat, format_value};
 ///
 /// - `--fields` pre-filters the JSON value before formatting (works for all formats).
 /// - `--compact` only applies to JSON output; ignored for table/yaml/csv.
-pub fn print_value(value: &Value, fields: Option<&str>, format: OutputFormat, compact: bool) -> Result<()> {
+pub fn print_value(
+    value: &Value,
+    fields: Option<&str>,
+    format: OutputFormat,
+    compact: bool,
+) -> Result<()> {
     let filtered = apply_fields(value, fields);
     let out = match (&format, compact) {
-        (OutputFormat::Json, true)  => format!("{}\n", serde_json::to_string(&filtered)?),
+        (OutputFormat::Json, true) => format!("{}\n", serde_json::to_string(&filtered)?),
         (OutputFormat::Json, false) => format!("{}\n", serde_json::to_string_pretty(&filtered)?),
-        _                           => format_value(&normalize_for_table(&filtered), &format),
+        _ => format_value(&normalize_for_table(&filtered), &format),
     };
     print!("{out}");
     Ok(())
@@ -32,7 +37,9 @@ pub fn print_json(value: &Value, fields: Option<&str>, compact: bool) -> Result<
 /// for a data table.  Arrays-of-objects are left untouched so the formatter
 /// can render them as rows.
 fn normalize_for_table(value: &Value) -> Value {
-    let Value::Object(map) = value else { return value.clone() };
+    let Value::Object(map) = value else {
+        return value.clone();
+    };
     let mut out = serde_json::Map::new();
     for (k, v) in map {
         let normalized = match v {
@@ -73,8 +80,14 @@ pub fn print_agent_json(alias: &str, url: &str, value: &Value, fields: Option<&s
 }
 
 fn apply_fields(value: &Value, fields: Option<&str>) -> Value {
-    let Some(f) = fields else { return value.clone() };
-    let paths: Vec<&str> = f.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    let Some(f) = fields else {
+        return value.clone();
+    };
+    let paths: Vec<&str> = f
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
     if paths.is_empty() {
         return value.clone();
     }
@@ -97,7 +110,10 @@ fn extract_path(value: &Value, path: &str) -> Option<Value> {
         current = match current {
             Value::Object(m) => m.get(key)?,
             Value::Array(arr) => {
-                let items: Vec<Value> = arr.iter().filter_map(|item| extract_path(item, key)).collect();
+                let items: Vec<Value> = arr
+                    .iter()
+                    .filter_map(|item| extract_path(item, key))
+                    .collect();
                 return Some(Value::Array(items));
             }
             _ => return None,

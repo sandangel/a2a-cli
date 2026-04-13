@@ -1,0 +1,2 @@
+edition = "2024"
+ignore = ["gws-cli/**", "a2a-rs/**"]

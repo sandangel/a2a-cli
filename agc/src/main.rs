@@ -1,14 +1,14 @@
-use std::sync::Arc;
 use clap::Parser;
 use futures::stream::{FuturesUnordered, StreamExt};
+use std::sync::Arc;
 
-use agc::cli::{Cli, Command};
-use agc::commands::{
-    agent::run_agent, auth::run_auth, config::run_config,
-    generate_skills::run_generate_skills, schema::run_schema,
-};
 use agc::auth::refresh_if_expired;
+use agc::cli::{Cli, Command};
 use agc::client::{resolve_all_targets, resolve_target};
+use agc::commands::{
+    agent::run_agent, auth::run_auth, config::run_config, generate_skills::run_generate_skills,
+    schema::run_schema,
+};
 use agc::printer::{print_agent_json, print_json, print_value};
 use agc::runner::{is_streaming, run_streaming, run_to_value};
 use agc::validate::validate_message_text;
@@ -36,11 +36,11 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
 
     // Management / tooling commands — no agent resolution needed.
     match &cli.command {
-        Command::Agent { command }      => return run_agent(command, args).await,
-        Command::Auth { command }       => return run_auth(command, args).await,
-        Command::Config { command }     => return run_config(command, args).await,
-        Command::GenerateSkills(cmd)    => return run_generate_skills(cmd).await,
-        Command::Schema { command }     => return run_schema(command, args).await,
+        Command::Agent { command } => return run_agent(command, args).await,
+        Command::Auth { command } => return run_auth(command, args).await,
+        Command::Config { command } => return run_config(command, args).await,
+        Command::GenerateSkills(cmd) => return run_generate_skills(cmd).await,
+        Command::Schema { command } => return run_schema(command, args).await,
         _ => {}
     }
 
@@ -50,9 +50,9 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
         _ => {}
     }
 
-    let fields  = args.fields.as_deref();
+    let fields = args.fields.as_deref();
     let compact = args.compact;
-    let format  = args.format.clone();
+    let format = args.format.clone();
     let command = Arc::new(cli.command);
 
     // Multi-agent: --all — dispatch in parallel, print results first-done-first.
@@ -64,8 +64,8 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
                 let explicit_bearer = args.bearer_token.clone();
                 let client_id = t.agent.oauth.client_id.clone();
                 let binding = args.transport;
-                let tenant  = args.tenant.clone();
-                let cmd     = Arc::clone(&command);
+                let tenant = args.tenant.clone();
+                let cmd = Arc::clone(&command);
                 tokio::spawn(async move {
                     let bearer = resolve_bearer(explicit_bearer, &t.url, &client_id).await;
                     run_to_value(&cmd, &t.url, bearer.as_deref(), binding, tenant.as_deref())
@@ -78,8 +78,8 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
         while let Some(result) = stream.next().await {
             match result {
                 Ok(Ok((alias, url, v))) => print_agent_json(&alias, &url, &v, fields)?,
-                Ok(Err(e))              => eprintln!("error: {e}"),
-                Err(e)                  => eprintln!("task error: {e}"),
+                Ok(Err(e)) => eprintln!("error: {e}"),
+                Err(e) => eprintln!("task error: {e}"),
             }
         }
         return Ok(());
@@ -87,10 +87,15 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
 
     // Single agent — prefer explicit --bearer-token, fall back to stored token (auto-refresh).
     let target = resolve_target(args)?;
-    let bearer = resolve_bearer(args.bearer_token.clone(), &target.url, &target.agent.oauth.client_id).await;
+    let bearer = resolve_bearer(
+        args.bearer_token.clone(),
+        &target.url,
+        &target.agent.oauth.client_id,
+    )
+    .await;
     let bearer = bearer.as_deref();
     let binding = args.transport;
-    let tenant  = args.tenant.as_deref();
+    let tenant = args.tenant.as_deref();
 
     if is_streaming(&command) {
         return run_streaming(&command, &target.url, bearer, binding, tenant, |v| {

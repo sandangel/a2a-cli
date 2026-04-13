@@ -2,5 +2,8 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
+      - id: fmt
+        args: ["-p", "agc", "-p", "a2a-compat", "--", "--check"]
+        pass_filenames: false
       - id: clippy
         args: ["-p", "agc", "-p", "a2a-compat", "--no-deps", "--", "-D", "warnings"]

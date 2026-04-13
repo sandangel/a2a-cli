@@ -16,13 +16,13 @@ pub mod output;
 pub mod credential_store;
 
 // ── Our own modules ───────────────────────────────────────────────────
-pub mod printer;      // print_json / print_agent_json with --fields
-pub mod runner;       // run_to_value / run_streaming
+pub mod auth;
 pub mod cli;
+pub mod client;
 pub mod commands;
 pub mod config;
-pub mod auth;
-pub mod token_store;
-pub mod client;
 pub mod error;
+pub mod printer; // print_json / print_agent_json with --fields
+pub mod runner; // run_to_value / run_streaming
+pub mod token_store;
 pub mod validate;

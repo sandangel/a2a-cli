@@ -4,7 +4,7 @@ use std::path::Path;
 use clap::{Args, Subcommand};
 
 use crate::cli::GlobalArgs;
-use crate::config::{load, save, Agent, OAuthConfig};
+use crate::config::{Agent, OAuthConfig, load, save};
 use crate::error::{AgcError, Result};
 use crate::printer::print_value;
 use crate::runner::fetch_card;
@@ -196,9 +196,10 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                 return Ok(());
             }
             for alias in &aliases {
-                let agent = cfg.agents.get(alias).ok_or_else(|| {
-                    AgcError::Config(format!("unknown alias {alias:?}"))
-                })?;
+                let agent = cfg
+                    .agents
+                    .get(alias)
+                    .ok_or_else(|| AgcError::Config(format!("unknown alias {alias:?}")))?;
                 eprint!("fetching card for {alias}... ");
                 match fetch_card(&agent.url, None).await {
                     Ok(card) => {
@@ -272,7 +273,10 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     let _ = writeln!(s, "---");
 
     let _ = writeln!(s, "\n# {alias} — {agent_name}");
-    let _ = writeln!(s, "\n> Read the `agc` skill first for CLI flags, auth, and output formatting.\n");
+    let _ = writeln!(
+        s,
+        "\n> Read the `agc` skill first for CLI flags, auth, and output formatting.\n"
+    );
     let _ = writeln!(s, "**URL:** {url}  ");
     let _ = writeln!(s, "**Version:** {agent_version}  ");
     let _ = writeln!(s, "\n{description}\n");
@@ -280,16 +284,32 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     // Capabilities
     let _ = writeln!(s, "## Capabilities\n");
     let _ = writeln!(s, "| Feature | Supported |\n|---------|-----------|");
-    let _ = writeln!(s, "| Streaming | {} |", bool_icon(caps.streaming.unwrap_or(false)));
-    let _ = writeln!(s, "| Push notifications | {} |", bool_icon(caps.push_notifications.unwrap_or(false)));
-    let _ = writeln!(s, "| Extended agent card | {} |", bool_icon(caps.extended_agent_card.unwrap_or(false)));
+    let _ = writeln!(
+        s,
+        "| Streaming | {} |",
+        bool_icon(caps.streaming.unwrap_or(false))
+    );
+    let _ = writeln!(
+        s,
+        "| Push notifications | {} |",
+        bool_icon(caps.push_notifications.unwrap_or(false))
+    );
+    let _ = writeln!(
+        s,
+        "| Extended agent card | {} |",
+        bool_icon(caps.extended_agent_card.unwrap_or(false))
+    );
 
     // Auth
     if let Some(schemes) = &card.security_schemes {
         if !schemes.is_empty() {
             let _ = writeln!(s, "\n## Authentication\n");
             let _ = writeln!(s, "```bash\nagc auth login --agent {alias}\n```\n");
-            let _ = writeln!(s, "Supported schemes: {}", schemes.keys().cloned().collect::<Vec<_>>().join(", "));
+            let _ = writeln!(
+                s,
+                "Supported schemes: {}",
+                schemes.keys().cloned().collect::<Vec<_>>().join(", ")
+            );
         }
     } else {
         let _ = writeln!(s, "\n## Authentication\n\nNo authentication required.");
@@ -330,13 +350,19 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
             let _ = writeln!(s);
         }
     } else {
-        let _ = writeln!(s, "\n## Skills\n\nThis agent has no declared skills — it accepts general messages.\n");
+        let _ = writeln!(
+            s,
+            "\n## Skills\n\nThis agent has no declared skills — it accepts general messages.\n"
+        );
     }
 
     // Quick reference
     let _ = writeln!(s, "## Quick Reference\n\n```bash");
     let _ = writeln!(s, "agc send \"<your request>\"");
-    let _ = writeln!(s, "agc send \"<your request>\" --fields status.message.parts");
+    let _ = writeln!(
+        s,
+        "agc send \"<your request>\" --fields status.message.parts"
+    );
     if caps.streaming.unwrap_or(false) {
         let _ = writeln!(s, "agc stream \"<your request>\"");
     }

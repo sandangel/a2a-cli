@@ -4,8 +4,7 @@ use crate::formatter::OutputFormat;
 
 // Re-use a2acli's arg structs — no redefinition needed.
 pub use a2acli::{
-    Binding, MessageCommand, PushConfigCommand, TaskIdCommand, TaskLookupCommand,
-    ListTasksCommand,
+    Binding, ListTasksCommand, MessageCommand, PushConfigCommand, TaskIdCommand, TaskLookupCommand,
 };
 
 /// Re-export `Binding` under the user-facing name used in `--transport`.
@@ -69,7 +68,6 @@ pub struct GlobalArgs {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     // ── Core: interact with agents ────────────────────────────────────
-
     /// Send a message and wait for the response
     Send(MessageCommand),
     /// Send a streaming message — prints events as they arrive
@@ -80,7 +78,6 @@ pub enum Command {
     ExtendedCard,
 
     // ── Task management ───────────────────────────────────────────────
-
     /// Fetch a task by ID
     GetTask(TaskLookupCommand),
     /// List tasks with optional filters
@@ -91,7 +88,6 @@ pub enum Command {
     Subscribe(TaskIdCommand),
 
     // ── Push notifications ────────────────────────────────────────────
-
     /// Manage push notification configs for a task
     PushConfig {
         #[command(subcommand)]
@@ -99,7 +95,6 @@ pub enum Command {
     },
 
     // ── Agent registry + auth ─────────────────────────────────────────
-
     /// Manage named agent aliases (add, use, list, remove, show, update)
     Agent {
         #[command(subcommand)]
@@ -112,7 +107,6 @@ pub enum Command {
     },
 
     // ── LLM tooling ───────────────────────────────────────────────────
-
     /// Inspect A2A type schemas and live agent skill schemas
     Schema {
         #[command(subcommand)]
@@ -122,7 +116,6 @@ pub enum Command {
     GenerateSkills(GenerateSkillsCommand),
 
     // ── Config ────────────────────────────────────────────────────────
-
     /// Show CLI configuration
     Config {
         #[command(subcommand)]

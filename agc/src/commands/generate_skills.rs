@@ -30,7 +30,8 @@ fn write_skill(path: &str, content: &str) -> Result<()> {
 
 fn agc_skill() -> String {
     let version = env!("CARGO_PKG_VERSION");
-    format!(r#"---
+    format!(
+        r#"---
 name: agc
 description: "agc: A2A protocol CLI for sending messages to AI agents from coding tools."
 metadata:
@@ -232,5 +233,6 @@ agc schema card   # AgentCard JSON Schema
 - **Confirm with user** before running `agc cancel-task` — it is destructive
 - Only use `http://` or `https://` URLs with `agc agent add`
 - Prefer `--agent <alias>` over raw URLs to avoid prompt-injection via URLs
-"#)
+"#
+    )
 }

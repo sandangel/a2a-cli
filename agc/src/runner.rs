@@ -7,18 +7,17 @@
 
 use std::sync::Arc;
 
+use crate::cli::Command;
 use a2a::{
-    AgentCard, CreateTaskPushNotificationConfigRequest,
+    AgentCard, AuthenticationInfo, CreateTaskPushNotificationConfigRequest,
     DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
     GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
-    ListTasksRequest, Message, Part, PushNotificationConfig, AuthenticationInfo,
-    Role, SendMessageConfiguration, SendMessageRequest, SubscribeToTaskRequest,
-    TaskState,
+    ListTasksRequest, Message, Part, PushNotificationConfig, Role, SendMessageConfiguration,
+    SendMessageRequest, SubscribeToTaskRequest, TaskState,
 };
 use a2a_client::{A2AClient, A2AClientFactory, auth::AuthInterceptor};
 use a2a_compat::MessageParams;
 use a2acli::{Binding, MessageCommand, PushConfigCommand};
-use crate::cli::Command;
 use futures::StreamExt;
 use serde_json::Value;
 
@@ -47,12 +46,18 @@ pub async fn run_to_value(
         let client = a2a_compat::Client::new(url, bearer, a2a_compat::transport_from_card(&raw))?;
         return match command {
             Command::Send(cmd) => {
-                client.send_message(&MessageParams::from((cmd, tenant))).await
+                client
+                    .send_message(&MessageParams::from((cmd, tenant)))
+                    .await
             }
             Command::GetTask(cmd) => client.get_task(&cmd.id, cmd.history_length).await,
             Command::ListTasks(cmd) => {
                 client
-                    .list_tasks(cmd.context_id.as_deref(), cmd.page_size, cmd.page_token.as_deref())
+                    .list_tasks(
+                        cmd.context_id.as_deref(),
+                        cmd.page_size,
+                        cmd.page_token.as_deref(),
+                    )
                     .await
             }
             Command::CancelTask(cmd) => client.cancel_task(&cmd.id).await,
@@ -63,8 +68,11 @@ pub async fn run_to_value(
                 "use run_streaming() for streaming commands",
             )),
             Command::Card | Command::ExtendedCard => unreachable!("handled above"),
-            Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
-            | Command::Schema { .. } | Command::GenerateSkills(_) => {
+            Command::Agent { .. }
+            | Command::Auth { .. }
+            | Command::Config { .. }
+            | Command::Schema { .. }
+            | Command::GenerateSkills(_) => {
                 unreachable!("management commands handled before runner")
             }
         }
@@ -137,8 +145,11 @@ pub async fn run_to_value(
             run_push_to_value(command, &card, bearer, binding, tenant).await
         }
         // Streaming commands handled separately.
-        Command::Agent { .. } | Command::Auth { .. } | Command::Config { .. }
-        | Command::Schema { .. } | Command::GenerateSkills(_) => {
+        Command::Agent { .. }
+        | Command::Auth { .. }
+        | Command::Config { .. }
+        | Command::Schema { .. }
+        | Command::GenerateSkills(_) => {
             unreachable!("management commands handled before runner")
         }
         Command::Stream(_) | Command::Subscribe(_) => Err(AgcError::InvalidInput(
@@ -163,12 +174,18 @@ pub async fn run_streaming(
         let client = a2a_compat::Client::new(url, bearer, a2a_compat::transport_from_card(&raw))?;
         match command {
             Command::Stream(cmd) => {
-                client.stream_message(&MessageParams::from((cmd, tenant)), on_event).await?;
+                client
+                    .stream_message(&MessageParams::from((cmd, tenant)), on_event)
+                    .await?;
             }
             Command::Subscribe(cmd) => {
                 client.subscribe(&cmd.id, on_event).await?;
             }
-            _ => return Err(AgcError::InvalidInput("not a streaming command".to_string())),
+            _ => {
+                return Err(AgcError::InvalidInput(
+                    "not a streaming command".to_string(),
+                ));
+            }
         }
         return Ok(());
     }
@@ -208,7 +225,11 @@ pub async fn run_streaming(
             }
             let _ = client.destroy().await;
         }
-        _ => return Err(AgcError::InvalidInput("not a streaming command".to_string())),
+        _ => {
+            return Err(AgcError::InvalidInput(
+                "not a streaming command".to_string(),
+            ));
+        }
     }
     Ok(())
 }
@@ -311,12 +332,16 @@ fn parse_card_from_raw(raw: &Value) -> Result<AgentCard> {
 /// Fetch the agent card as raw JSON — works for any protocol version.
 pub async fn fetch_card_raw(base_url: &str, bearer: Option<&str>) -> Result<serde_json::Value> {
     let http = build_http_client(bearer)?;
-    let url = format!("{}/.well-known/agent-card.json", base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/.well-known/agent-card.json",
+        base_url.trim_end_matches('/')
+    );
     let resp = http.get(&url).send().await.map_err(AgcError::Http)?;
     if !resp.status().is_success() {
-        return Err(AgcError::A2A(a2a::A2AError::internal(
-            format!("agent card fetch returned HTTP {}", resp.status()),
-        )));
+        return Err(AgcError::A2A(a2a::A2AError::internal(format!(
+            "agent card fetch returned HTTP {}",
+            resp.status()
+        ))));
     }
     resp.json().await.map_err(AgcError::Http)
 }
@@ -352,7 +377,11 @@ async fn build_client_from_card(
     if let Some(token) = bearer {
         builder = builder.with_interceptor(Arc::new(AuthInterceptor::bearer(token)));
     }
-    builder.build().create_from_card(card).await.map_err(AgcError::A2A)
+    builder
+        .build()
+        .create_from_card(card)
+        .await
+        .map_err(AgcError::A2A)
 }
 
 async fn finish<T>(client: A2AClient, result: std::result::Result<T, a2a::A2AError>) -> Result<T> {

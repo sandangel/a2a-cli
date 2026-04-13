@@ -24,7 +24,9 @@ pub async fn run_config(cmd: &ConfigCommand, args: &GlobalArgs) -> Result<()> {
                     "current_agent": cfg.current_agent,
                     "agents": cfg.agents.keys().collect::<Vec<_>>(),
                 }),
-                args.fields.as_deref(), args.format.clone(), args.compact,
+                args.fields.as_deref(),
+                args.format.clone(),
+                args.compact,
             )?;
         }
         ConfigCommand::Edit => {

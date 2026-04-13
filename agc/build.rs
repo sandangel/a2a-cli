@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use prost_reflect::{Cardinality, DescriptorPool, FieldDescriptor, Kind, MessageDescriptor};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // BUILD_ENV → compile-time default host
@@ -31,7 +31,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let status = std::process::Command::new(protoc)
         .arg("--include_imports")
         .arg("--include_source_info")
-        .arg(format!("--descriptor_set_out={}", descriptor_path.display()))
+        .arg(format!(
+            "--descriptor_set_out={}",
+            descriptor_path.display()
+        ))
         .arg(format!("-I{}", proto_root.display()))
         .arg(proto_root.join("a2a.proto"))
         .status()?;
@@ -44,8 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (msg, file) in [
         ("lf.a2a.v1.SendMessageRequest", "schema_send.json"),
-        ("lf.a2a.v1.Task",               "schema_task.json"),
-        ("lf.a2a.v1.AgentCard",          "schema_card.json"),
+        ("lf.a2a.v1.Task", "schema_task.json"),
+        ("lf.a2a.v1.AgentCard", "schema_card.json"),
     ] {
         let schema = generate(&pool, msg)?;
         std::fs::write(out_dir.join(file), serde_json::to_string_pretty(&schema)?)?;
@@ -57,7 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // ── Schema generation ─────────────────────────────────────────────────
 
 fn generate(pool: &DescriptorPool, name: &str) -> Result<Value, Box<dyn std::error::Error>> {
-    let msg = pool.get_message_by_name(name)
+    let msg = pool
+        .get_message_by_name(name)
         .ok_or_else(|| format!("message not found: {name}"))?;
     let mut defs: Map<String, Value> = Map::new();
     let mut resolving = HashSet::new();
@@ -85,7 +89,9 @@ fn msg_schema(
         "properties": Value::Object(properties),
     });
     let c = msg_comment(msg);
-    if !c.is_empty() { schema["description"] = json!(c); }
+    if !c.is_empty() {
+        schema["description"] = json!(c);
+    }
     schema
 }
 
@@ -113,20 +119,32 @@ fn field_schema(
         kind_schema(field.kind(), defs, resolving)
     };
     let c = field_comment(field);
-    if !c.is_empty() { schema["description"] = json!(c); }
+    if !c.is_empty() {
+        schema["description"] = json!(c);
+    }
     schema
 }
 
-fn kind_schema(kind: Kind, defs: &mut Map<String, Value>, resolving: &mut HashSet<String>) -> Value {
+fn kind_schema(
+    kind: Kind,
+    defs: &mut Map<String, Value>,
+    resolving: &mut HashSet<String>,
+) -> Value {
     match kind {
-        Kind::String  => json!({ "type": "string" }),
-        Kind::Bytes   => json!({ "type": "string", "contentEncoding": "base64" }),
-        Kind::Bool    => json!({ "type": "boolean" }),
+        Kind::String => json!({ "type": "string" }),
+        Kind::Bytes => json!({ "type": "string", "contentEncoding": "base64" }),
+        Kind::Bool => json!({ "type": "boolean" }),
         Kind::Float | Kind::Double => json!({ "type": "number" }),
-        Kind::Int32  | Kind::Sint32  | Kind::Sfixed32
-        | Kind::Uint32 | Kind::Fixed32
-        | Kind::Int64  | Kind::Sint64  | Kind::Sfixed64
-        | Kind::Uint64 | Kind::Fixed64 => json!({ "type": "integer" }),
+        Kind::Int32
+        | Kind::Sint32
+        | Kind::Sfixed32
+        | Kind::Uint32
+        | Kind::Fixed32
+        | Kind::Int64
+        | Kind::Sint64
+        | Kind::Sfixed64
+        | Kind::Uint64
+        | Kind::Fixed64 => json!({ "type": "integer" }),
         Kind::Enum(e) => {
             let vals: Vec<String> = e.values().map(|v| v.name().to_string()).collect();
             json!({ "type": "string", "enum": vals })
@@ -135,11 +153,15 @@ fn kind_schema(kind: Kind, defs: &mut Map<String, Value>, resolving: &mut HashSe
     }
 }
 
-fn msg_ref(msg: &MessageDescriptor, defs: &mut Map<String, Value>, resolving: &mut HashSet<String>) -> Value {
+fn msg_ref(
+    msg: &MessageDescriptor,
+    defs: &mut Map<String, Value>,
+    resolving: &mut HashSet<String>,
+) -> Value {
     // Inline well-known types rather than creating $defs entries for them.
     match msg.full_name() {
-        "google.protobuf.Struct"    => return json!({ "type": "object" }),
-        "google.protobuf.Value"     => return json!({}),
+        "google.protobuf.Struct" => return json!({ "type": "object" }),
+        "google.protobuf.Value" => return json!({}),
         "google.protobuf.Timestamp" => return json!({ "type": "string", "format": "date-time" }),
         "google.protobuf.ListValue" => return json!({ "type": "array" }),
         _ => {}

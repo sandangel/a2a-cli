@@ -44,7 +44,9 @@ pub struct Token {
 
 impl Token {
     pub fn is_expired(&self) -> bool {
-        let Some(exp) = self.expires_at else { return false };
+        let Some(exp) = self.expires_at else {
+            return false;
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -65,7 +67,7 @@ impl Backend {
     fn from_env() -> Self {
         match std::env::var("AGC_KEYRING_BACKEND").as_deref() {
             Ok("keyring") => Backend::Keyring,
-            Ok("file")    => Backend::File,
+            Ok("file") => Backend::File,
             // On Linux the keyring crate has no real keychain without explicit
             // D-Bus features (mirrors gws-cli behaviour: file-only on Linux).
             // On macOS/Windows the native keychain is reliable.
@@ -86,12 +88,14 @@ pub fn load_token(agent_url: &str) -> Result<Option<Token>> {
     let host = url_host(agent_url)?;
     let json = match Backend::from_env() {
         Backend::Keyring => keyring_load(&host).or_else(|_| file_load(&host)),
-        Backend::File    => file_load(&host),
+        Backend::File => file_load(&host),
     };
     match json {
-        Ok(s) => Ok(Some(
-            serde_json::from_str(&s).map_err(|e| AgcError::Auth(format!("parse token: {e}")))?,
-        )),
+        Ok(s) => {
+            Ok(Some(serde_json::from_str(&s).map_err(|e| {
+                AgcError::Auth(format!("parse token: {e}"))
+            })?))
+        }
         Err(_) => Ok(None),
     }
 }
@@ -102,7 +106,7 @@ pub fn save_token(agent_url: &str, token: &Token) -> Result<()> {
         .map_err(|e| AgcError::Auth(format!("serialize token: {e}")))?;
     match Backend::from_env() {
         Backend::Keyring => keyring_save(&host, &json).or_else(|_| file_save(&host, &json)),
-        Backend::File    => file_save(&host, &json),
+        Backend::File => file_save(&host, &json),
     }
 }
 
@@ -156,8 +160,7 @@ fn file_save(host: &str, json: &str) -> Result<()> {
     }
     let ciphertext =
         aes_encrypt(json.as_bytes()).map_err(|e| AgcError::Auth(format!("encrypt: {e}")))?;
-    atomic_write(&path, &ciphertext)
-        .map_err(|e| AgcError::Auth(format!("write token: {e}")))
+    atomic_write(&path, &ciphertext).map_err(|e| AgcError::Auth(format!("write token: {e}")))
 }
 
 // ── AES-256-GCM (key stored under service "agc") ──────────────────────
@@ -167,7 +170,11 @@ fn aes_encrypt(plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let mut out = nonce.to_vec();
-    out.extend(cipher.encrypt(&nonce, plaintext).map_err(|_| anyhow::anyhow!("encrypt failed"))?);
+    out.extend(
+        cipher
+            .encrypt(&nonce, plaintext)
+            .map_err(|_| anyhow::anyhow!("encrypt failed"))?,
+    );
     Ok(out)
 }
 
@@ -178,7 +185,9 @@ fn aes_decrypt(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let key = get_or_create_aes_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     let nonce = Nonce::from_slice(&data[..12]);
-    cipher.decrypt(nonce, &data[12..]).map_err(|_| anyhow::anyhow!("decrypt failed"))
+    cipher
+        .decrypt(nonce, &data[12..])
+        .map_err(|_| anyhow::anyhow!("decrypt failed"))
 }
 
 /// Load or generate the AES-256 key, stored in keyring under service "agc".
@@ -195,9 +204,8 @@ fn get_or_create_aes_key() -> anyhow::Result<[u8; 32]> {
     if Backend::from_env() == Backend::Keyring
         && let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ENC_KEY)
         && let Ok(b64) = entry.get_password()
-        && let Ok(bytes) = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD, b64.trim()
-        )
+        && let Ok(bytes) =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64.trim())
         && let Ok(arr) = bytes.try_into()
     {
         let _ = KEY.set(arr);
@@ -207,10 +215,10 @@ fn get_or_create_aes_key() -> anyhow::Result<[u8; 32]> {
     // 2. Try key file.
     if key_file.exists() {
         let b64 = std::fs::read_to_string(&key_file)?;
-        let bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD, b64.trim()
-        )?;
-        let arr: [u8; 32] = bytes.try_into().map_err(|_| anyhow::anyhow!("invalid key length"))?;
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64.trim())?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("invalid key length"))?;
         let _ = KEY.set(arr);
         return Ok(arr);
     }
@@ -239,10 +247,14 @@ fn get_or_create_aes_key() -> anyhow::Result<[u8; 32]> {
 // ── Helpers ───────────────────────────────────────────────────────────
 
 fn url_host(url: &str) -> Result<String> {
-    let stripped = url.trim_start_matches("https://").trim_start_matches("http://");
+    let stripped = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
     let host = stripped.split('/').next().unwrap_or(stripped);
     if host.is_empty() {
-        return Err(AgcError::Config(format!("cannot extract host from URL: {url}")));
+        return Err(AgcError::Config(format!(
+            "cannot extract host from URL: {url}"
+        )));
     }
     Ok(host.replace(':', "_"))
 }

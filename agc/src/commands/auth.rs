@@ -1,6 +1,6 @@
 use clap::Subcommand;
 
-use crate::auth::{login, logout, token_status, TokenStatus};
+use crate::auth::{TokenStatus, login, logout, token_status};
 use crate::cli::GlobalArgs;
 use crate::client::resolve_target;
 use crate::config::load;
