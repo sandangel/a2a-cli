@@ -144,15 +144,18 @@ agc subscribe <id>            # stream live task updates
 
 ## Response Shape
 
-`agc send` and `agc get-task` return a raw A2A **Task** object:
+`agc send` wraps the A2A `message/send` operation. The agent decides what to return:
+
+### Task response (most agents, including rover)
+
+When the agent returns a **Task**, output is in `artifacts`. `status.message` is
+only set for in-progress communication (e.g. `input-required`), not final results.
 
 ```json
 {
   "id":        "task-abc123",
   "contextId": "ctx-abc123",
-  "status": {
-    "state": "completed"
-  },
+  "status": { "state": "completed" },
   "artifacts": [
     {
       "artifactId": "...",
@@ -162,8 +165,7 @@ agc subscribe <id>            # stream live task updates
 }
 ```
 
-Per the A2A spec: task outputs MUST be in `artifacts`. `status.message` is only
-present for in-progress communication such as `input-required` prompts.
+Use `--fields artifacts` to extract the reply.
 
 | `status.state` | Meaning |
 |----------------|---------|
@@ -171,8 +173,22 @@ present for in-progress communication such as `input-required` prompts.
 | `working` | In progress — poll with `agc get-task <id>` |
 | `completed` | Finished — read `artifacts[*].parts` for the answer |
 | `failed` | Error — read `status.message` for details |
-| `input-required` | Agent needs a reply — read `status.message.parts`, then use `agc send --task-id <id> "..."` |
+| `input-required` | Agent needs a reply — read `status.message.parts`, then `agc send --task-id <id> "..."` |
 | `canceled` | Canceled |
+
+### Message response (simple agents)
+
+Some agents return a direct **Message** instead of a Task (for interactions that
+don't require task tracking). The reply is in `parts` at the top level:
+
+```json
+{
+  "role":  "agent",
+  "parts": [{ "kind": "text", "text": "The agent's answer" }]
+}
+```
+
+Use `--fields parts` to extract the reply.
 
 Multi-agent results include `agent` and `agent_url` at the top level.
 
