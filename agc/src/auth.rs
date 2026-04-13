@@ -294,6 +294,20 @@ pub fn token_status(agent_url: &str) -> Result<TokenStatus> {
     }
 }
 
+// ── Browser open ─────────────────────────────────────────────────────
+
+/// Open `url` in the system browser.  Always returns `false` in test builds
+/// so tests never actually launch a browser.
+fn open_browser(url: &str) -> bool {
+    #[cfg(test)]
+    {
+        let _ = url;
+        return false; // treat as "browser did not open" — prints fallback URL
+    }
+    #[cfg_attr(test, allow(unreachable_code))]
+    open::that(url).is_ok()
+}
+
 // ── Test hook: capture the auth URL before opening the browser ────────
 
 #[cfg(test)]
@@ -367,7 +381,7 @@ async fn auth_code_pkce_flow(
         }
     }
 
-    if open::that(&full_auth_url).is_ok() {
+    if open_browser(&full_auth_url) {
         eprintln!("\nOpening browser for authentication...");
         eprintln!("If the browser did not open, visit:\n\n  {full_auth_url}\n");
     } else {
