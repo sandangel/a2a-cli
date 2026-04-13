@@ -88,3 +88,16 @@ npm/            npm wrapper package (@rover/agent-cli)
 ```
 
 > **Note:** `a2a-rs/` and `gws-cli/` are read-only references. Do not modify them.
+
+## Relationship to gws-cli
+
+`agc` is inspired by and shares implementation patterns with [**gws**](https://github.com/googleworkspace/cli), the Google Workspace CLI.
+Three modules are included directly from `gws-cli/` via `#[path]` attributes in `agc/src/lib.rs`:
+
+| Module | Source | Purpose |
+|--------|--------|---------|
+| `fs_util` | `gws-cli/crates/google-workspace-cli/src/fs_util.rs` | Atomic file writes |
+| `output` | `gws-cli/crates/google-workspace-cli/src/output.rs` | Terminal-safe output formatting |
+| `credential_store` | `gws-cli/crates/google-workspace-cli/src/credential_store.rs` | AES-256-GCM token encryption, keyring integration |
+
+When changing auth, token storage, or output logic, check the corresponding implementation in `gws-cli/` first — the patterns are intentionally shared between the two tools.

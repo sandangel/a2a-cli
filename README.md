@@ -118,6 +118,11 @@ agc auth logout --agent prod
 | `AGC_KEYRING_BACKEND` | `keyring` (default) or `file` |
 | `AGC_CLIENT_SECRET` | Client secret for Client Credentials flow |
 
+## Acknowledgements
+
+`agc` is inspired by and built on patterns from [**gws**](https://github.com/googleworkspace/cli) — the Google Workspace CLI.
+Several internal modules (output formatting, credential store, atomic file writes) are shared directly from the `gws-cli` codebase, keeping the two tools consistent in behaviour and structure.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
