@@ -123,9 +123,9 @@ headless / Docker environments.
 
 ```bash
 agc auth login               # active agent
-agc auth login --agent prod  # specific agent
+agc auth login --agent rover  # specific agent
 agc auth status              # all agents
-agc auth logout --agent prod
+agc auth logout --agent rover
 ```
 
 ## Environment variables
