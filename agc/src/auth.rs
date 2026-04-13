@@ -294,6 +294,19 @@ pub fn token_status(agent_url: &str) -> Result<TokenStatus> {
     }
 }
 
+// ── Test hook: capture the auth URL before opening the browser ────────
+
+#[cfg(test)]
+static AUTH_URL_CAPTURE: std::sync::OnceLock<
+    std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn auth_url_capture()
+-> &'static std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>> {
+    AUTH_URL_CAPTURE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
 // ── Authorization Code + PKCE ─────────────────────────────────────────
 
 async fn auth_code_pkce_flow(
@@ -345,6 +358,14 @@ async fn auth_code_pkce_flow(
             .collect::<Vec<_>>()
             .join("&")
     );
+
+    // Capture auth URL in tests before opening the browser.
+    #[cfg(test)]
+    if let Ok(guard) = auth_url_capture().lock() {
+        if let Some(tx) = guard.as_ref() {
+            let _ = tx.send(full_auth_url.clone());
+        }
+    }
 
     if open::that(&full_auth_url).is_ok() {
         eprintln!("\nOpening browser for authentication...");
@@ -568,6 +589,82 @@ fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+// ── Shared test helpers ───────────────────────────────────────────────
+
+#[cfg(test)]
+pub(crate) mod test_utils {
+    /// RAII guard: saves an env var on creation and restores it on drop.
+    pub struct EnvGuard {
+        name: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+    impl EnvGuard {
+        pub fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let original = std::env::var_os(name);
+            unsafe { std::env::set_var(name, value) };
+            Self { name, original }
+        }
+    }
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(v) => unsafe { std::env::set_var(self.name, v) },
+                None => unsafe { std::env::remove_var(self.name) },
+            }
+        }
+    }
+
+    /// Spawn a minimal HTTP server that handles one POST and responds with
+    /// `status` + JSON `body`.
+    pub async fn spawn_token_server(
+        status: u16,
+        body: &'static str,
+    ) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://127.0.0.1:{port}/token");
+
+        let handle = tokio::spawn(async move {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let (read_half, mut write_half) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read_half);
+            let mut content_length = 0usize;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(v) = line.to_lowercase().strip_prefix("content-length: ") {
+                    content_length = v.trim().parse().unwrap_or(0);
+                }
+            }
+            if content_length > 0 {
+                let mut buf = vec![0u8; content_length];
+                let _ = reader.read_exact(&mut buf).await;
+            }
+            let status_line = if status == 200 {
+                "200 OK"
+            } else {
+                "400 Bad Request"
+            };
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = write_half.write_all(resp.as_bytes()).await;
+        });
+        (url, handle)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -771,32 +868,10 @@ mod tests {
 
 #[cfg(test)]
 mod refresh_tests {
+    use super::test_utils::{EnvGuard, spawn_token_server};
     use super::*;
     use crate::token_store::{Token, load_token, save_token};
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    /// RAII guard: saves an env var on creation and restores it on drop.
-    struct EnvGuard {
-        name: &'static str,
-        original: Option<std::ffi::OsString>,
-    }
-    impl EnvGuard {
-        fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-            let original = std::env::var_os(name);
-            unsafe {
-                std::env::set_var(name, value);
-            }
-            Self { name, original }
-        }
-    }
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match &self.original {
-                Some(v) => unsafe { std::env::set_var(self.name, v) },
-                None => unsafe { std::env::remove_var(self.name) },
-            }
-        }
-    }
 
     fn unix_secs() -> u64 {
         SystemTime::now()
@@ -825,62 +900,6 @@ mod refresh_tests {
             scopes: vec!["openid".to_string()],
             token_url: Some("https://auth.example.com/token".to_string()),
         }
-    }
-
-    /// Spawn a minimal HTTP server on a random port that handles one POST request
-    /// and responds with `status` + `response_body`.
-    async fn spawn_token_server(
-        status: u16,
-        response_body: &'static str,
-    ) -> (String, tokio::task::JoinHandle<()>) {
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let url = format!("http://127.0.0.1:{port}/token");
-
-        let handle = tokio::spawn(async move {
-            let Ok((stream, _)) = listener.accept().await else {
-                return;
-            };
-            let (read_half, mut write_half) = tokio::io::split(stream);
-            let mut reader = BufReader::new(read_half);
-
-            // Read and discard request headers; track Content-Length.
-            let mut content_length = 0usize;
-            let mut line = String::new();
-            loop {
-                line.clear();
-                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
-                    break;
-                }
-                if line == "\r\n" {
-                    break;
-                }
-                let lower = line.to_lowercase();
-                if let Some(v) = lower.strip_prefix("content-length: ") {
-                    content_length = v.trim().parse().unwrap_or(0);
-                }
-            }
-            // Read request body so the client doesn't see a connection reset.
-            if content_length > 0 {
-                let mut body_buf = vec![0u8; content_length];
-                let _ = reader.read_exact(&mut body_buf).await;
-            }
-
-            let status_line = if status == 200 {
-                "200 OK"
-            } else {
-                "400 Bad Request"
-            };
-            let resp = format!(
-                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
-                response_body.len()
-            );
-            let _ = write_half.write_all(resp.as_bytes()).await;
-        });
-
-        (url, handle)
     }
 
     // ── refresh_if_expired ────────────────────────────────────────────
@@ -1084,6 +1103,155 @@ mod refresh_tests {
         assert!(result.is_err(), "do_refresh must return Err on HTTP 4xx");
 
         let _ = server.await;
+    }
+}
+
+/// Integration test for the full PKCE authorization code flow.
+#[cfg(test)]
+mod pkce_flow_tests {
+    use super::test_utils::{EnvGuard, spawn_token_server};
+    use super::*;
+    use crate::token_store::load_token;
+    use serial_test::serial;
+    use std::time::Duration;
+
+    /// Simulate the browser redirect: connect to `callback_url` and send a GET
+    /// with the given `code` and `state`, exactly as a browser would after the
+    /// authorization server redirects the user.
+    async fn send_browser_callback(callback_url: &str, code: &str, state: &str) {
+        use tokio::io::AsyncWriteExt;
+
+        // Parse port from http://127.0.0.1:{port}/callback
+        let port: u16 = callback_url
+            .split(':')
+            .nth(2)
+            .and_then(|s| s.split('/').next())
+            .and_then(|s| s.parse().ok())
+            .expect("parse callback port");
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{port}"))
+            .await
+            .expect("connect to callback server");
+
+        let request = format!(
+            "GET /callback?code={code}&state={state} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+        );
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("write callback request");
+        // Drain the response so the server can close cleanly.
+        let _ = tokio::io::copy(&mut stream, &mut tokio::io::sink()).await;
+    }
+
+    /// Parse and percent-decode a query-string value from a URL.
+    fn query_param(url: &str, key: &str) -> Option<String> {
+        use percent_encoding::percent_decode_str;
+        let query = url.split('?').nth(1)?;
+        query.split('&').find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            if k == key {
+                Some(percent_decode_str(v).decode_utf8_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn pkce_flow_builds_correct_auth_url_receives_callback_and_saves_token() {
+        // ── 1. Isolated config dir ────────────────────────────────────
+        let dir = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("AGC_CONFIG_DIR", dir.path());
+
+        // ── 2. Mock token endpoint ────────────────────────────────────
+        let (token_url, _token_server) = spawn_token_server(
+            200,
+            r#"{"access_token":"mock-access-token","expires_in":3600,"token_type":"Bearer","refresh_token":"mock-refresh"}"#,
+        )
+        .await;
+
+        // ── 3. Install auth-URL capture channel ───────────────────────
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        *auth_url_capture().lock().unwrap() = Some(tx);
+
+        // ── 4. Run PKCE flow in background ────────────────────────────
+        let agent_url = "http://mock-agent.test/";
+        let token_url_clone = token_url.clone();
+        let flow_handle = tokio::spawn(async move {
+            auth_code_pkce_flow(
+                "http://mock-auth.test/authorize",
+                &token_url_clone,
+                "test-client-id",
+                &["openid".to_string(), "email".to_string()],
+                agent_url,
+            )
+            .await
+        });
+
+        // ── 5. Receive the auth URL the flow would open in a browser ──
+        let auth_url = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("auth URL not captured within 5 s")
+            .expect("channel closed before URL was sent");
+
+        // Verify auth URL structure
+        assert!(
+            auth_url.starts_with("http://mock-auth.test/authorize"),
+            "wrong base: {auth_url}"
+        );
+        assert_eq!(
+            query_param(&auth_url, "response_type").as_deref(),
+            Some("code")
+        );
+        assert_eq!(
+            query_param(&auth_url, "client_id").as_deref(),
+            Some("test-client-id")
+        );
+        assert_eq!(
+            query_param(&auth_url, "code_challenge_method").as_deref(),
+            Some("S256")
+        );
+        let code_challenge =
+            query_param(&auth_url, "code_challenge").expect("code_challenge missing");
+        assert!(
+            !code_challenge.is_empty(),
+            "code_challenge must not be empty"
+        );
+        let redirect_uri_enc =
+            query_param(&auth_url, "redirect_uri").expect("redirect_uri missing");
+        let redirect_uri = percent_encoding::percent_decode_str(&redirect_uri_enc)
+            .decode_utf8_lossy()
+            .into_owned();
+        assert!(
+            redirect_uri.starts_with("http://127.0.0.1:"),
+            "redirect_uri must be localhost: {redirect_uri}"
+        );
+        let state = query_param(&auth_url, "state").expect("state missing");
+        assert!(!state.is_empty(), "state must not be empty");
+
+        // ── 6. Simulate browser sending the OAuth callback ────────────
+        send_browser_callback(&redirect_uri, "mock-auth-code", &state).await;
+
+        // ── 7. Wait for flow to complete ──────────────────────────────
+        let token = flow_handle
+            .await
+            .expect("flow task panicked")
+            .expect("auth_code_pkce_flow returned Err");
+
+        assert_eq!(token.access_token, "mock-access-token");
+        assert_eq!(token.refresh_token.as_deref(), Some("mock-refresh"));
+
+        // ── 8. Verify token is persisted (encrypted at rest) ─────────
+        let stored = load_token(agent_url)
+            .expect("load_token failed")
+            .expect("token not found after login");
+        assert_eq!(stored.access_token, "mock-access-token");
+        assert!(stored.expires_at.is_some(), "expires_at must be set");
+
+        // ── Cleanup ───────────────────────────────────────────────────
+        *auth_url_capture().lock().unwrap() = None;
     }
 }
 
