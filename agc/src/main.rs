@@ -1,6 +1,8 @@
 use clap::Parser;
 use futures::stream::{FuturesUnordered, StreamExt};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
+use std::time::Duration;
 
 use agc::auth::refresh_if_expired;
 use agc::cli::{Cli, Command};
@@ -102,12 +104,48 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
     let tenant = args.tenant.as_deref();
 
     if is_streaming(&command) {
-        return run_streaming(&command, &target.url, bearer, binding, tenant, |v| {
-            print_json(&v, fields, true) // streaming always compact NDJSON
-        })
-        .await;
+        return tokio::select! {
+            r = run_streaming(&command, &target.url, bearer, binding, tenant, |v| {
+                print_json(&v, fields, true) // streaming always compact NDJSON
+            }) => r,
+            _ = tokio::signal::ctrl_c() => {
+                eprintln!("\nInterrupted.");
+                Ok(())
+            }
+        };
     }
 
-    let value = run_to_value(&command, &target.url, bearer, binding, tenant).await?;
+    // Blocking commands: show a spinner on TTY so the user knows something is happening,
+    // and cancel cleanly on Ctrl+C.
+    let spinner = if matches!(
+        *command,
+        Command::Send(_) | Command::Card | Command::ExtendedCard
+    ) {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.dim} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+        );
+        pb.set_message("Waiting for response...");
+        pb.enable_steady_tick(Duration::from_millis(80));
+        Some(pb)
+    } else {
+        None
+    };
+
+    let result = tokio::select! {
+        r = run_to_value(&command, &target.url, bearer, binding, tenant) => r,
+        _ = tokio::signal::ctrl_c() => {
+            if let Some(pb) = &spinner { pb.finish_and_clear(); }
+            eprintln!("\nInterrupted.");
+            return Ok(());
+        }
+    };
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
+    let value = result?;
     print_value(&value, fields, format, compact)
 }

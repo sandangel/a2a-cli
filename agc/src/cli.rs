@@ -51,11 +51,11 @@ pub struct GlobalArgs {
     pub tenant: Option<String>,
 
     /// Comma-separated field paths to include in output (e.g. "id,status.state")
-    #[arg(long, global = true)]
+    #[arg(long, short = 'f', global = true)]
     pub fields: Option<String>,
 
     /// Emit compact JSON instead of pretty-printed
-    #[arg(long, global = true)]
+    #[arg(long, short = 'c', global = true)]
     pub compact: bool,
 
     /// Output format: json (default), table, yaml, csv
