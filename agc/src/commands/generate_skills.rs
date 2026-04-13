@@ -8,6 +8,7 @@ use std::path::Path;
 use clap::Args;
 
 use crate::error::{AgcError, Result};
+use crate::examples;
 
 #[derive(Debug, Args)]
 pub struct GenerateSkillsCommand {}
@@ -30,6 +31,8 @@ fn write_skill(path: &str, content: &str) -> Result<()> {
 
 fn agc_skill() -> String {
     let version = env!("CARGO_PKG_VERSION");
+    let send_fields_artifacts = examples::SEND_FIELDS_ARTIFACTS;
+    let send_fields_state_and_artifacts = examples::SEND_FIELDS_STATE_AND_ARTIFACTS;
     format!(
         r#"---
 name: agc
@@ -72,10 +75,10 @@ Always check `status.state` first.
 agc send "Summarise this PR"
 
 # Extract just the reply — preferred for AI tools
-agc send "Summarise this PR" --fields artifacts
+{send_fields_artifacts}
 
 # Extract state and reply together
-agc send "Summarise this PR" --fields status.state,artifacts
+{send_fields_state_and_artifacts}
 ```
 
 **Response shape (Task — most agents):**

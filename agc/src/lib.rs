@@ -26,6 +26,7 @@ pub mod client;
 pub mod commands;
 pub mod config;
 pub mod error;
+pub mod examples; // canonical CLI examples — single source of truth for docs + tests
 pub mod printer; // print_json / print_agent_json with --fields
 pub mod runner; // run_to_value / run_streaming
 pub mod token_store;

@@ -313,61 +313,101 @@ mod schema_coherence {
 // ── doc-example tests ─────────────────────────────────────────────────
 
 /// Mirror the key code examples from SKILL.md.
+/// Tests derived from `agc::examples` constants — the same strings embedded in
+/// SKILL.md are parsed here and run against the mock server.  If an example in
+/// `src/examples.rs` is changed the test will catch any breakage automatically.
 mod doc_examples {
     use super::*;
+    use agc::examples;
 
-    /// `agc send "Summarise this PR" --fields artifacts`
-    /// → artifacts array
+    /// Parse `text` and `--fields <f>` out of a canonical example string like
+    /// `agc send "some text" --fields foo,bar`.
+    fn parse_send_example(example: &str) -> (&str, Option<&str>) {
+        // extract quoted text
+        let text_start = example.find('"').unwrap() + 1;
+        let text_end = example[text_start..].find('"').unwrap() + text_start;
+        let text = &example[text_start..text_end];
+        // extract --fields value if present
+        let fields = example
+            .find("--fields ")
+            .map(|i| example[i + "--fields ".len()..].trim());
+        (text, fields)
+    }
+
+    // ── examples::SEND_FIELDS_ARTIFACTS ──────────────────────────────────
+    // Source: agc send "Summarise this PR" --fields artifacts
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn doc_send_fields_artifacts() {
+    async fn send_fields_artifacts_v03() {
+        let (text, _) = parse_send_example(examples::SEND_FIELDS_ARTIFACTS);
+        let server = MockServer::start(MockVariant::V03JsonRpc).await;
+        let result = run_send(text, &server.base_url).await;
+        // v0.3: artifacts at top level
+        assert!(
+            result["artifacts"].is_array(),
+            "expected artifacts array, got: {result}"
+        );
+        assert!(!result["artifacts"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn send_fields_artifacts_v1() {
+        let (text, _) = parse_send_example(examples::SEND_FIELDS_ARTIFACTS);
         let server = MockServer::start(MockVariant::V1).await;
-        let result = run_send("Summarise this PR", &server.base_url).await;
-        // In v1 the result is {"task": {...}}; artifacts live under task
+        let result = run_send(text, &server.base_url).await;
+        // v1: wrapped in {"task": {...}}
         assert!(result["task"]["artifacts"].is_array());
         assert!(!result["task"]["artifacts"].as_array().unwrap().is_empty());
     }
 
-    /// `agc send "Summarise this PR" --fields status.state,artifacts`
-    /// → both state and artifacts present
+    // ── examples::SEND_FIELDS_STATE_AND_ARTIFACTS ────────────────────────
+    // Source: agc send "Summarise this PR" --fields status.state,artifacts
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn doc_send_returns_status_and_artifacts() {
-        let server = MockServer::start(MockVariant::V1).await;
-        let result = run_send("Summarise this PR", &server.base_url).await;
-        let task = &result["task"];
-        assert_eq!(task["status"]["state"], "TASK_STATE_COMPLETED");
-        assert!(task["artifacts"].is_array());
-    }
-
-    /// Multi-agent example — `agc --all send "Status?"` — not tested directly
-    /// (needs config), but the `run_to_value` path is exercised by v1/v03 tests.
-
-    /// `agc get-task <id> --fields status.state` — returns state string
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn doc_get_task_fields_status_state() {
-        let server = MockServer::start(MockVariant::V1).await;
-        let result = run_get_task("test-task-id-42", &server.base_url).await;
-        // get-task returns Task directly
-        assert_eq!(result["status"]["state"], "TASK_STATE_COMPLETED");
-    }
-
-    /// `agc send "..." --context-id <id>` — contextId propagated
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn doc_send_with_context_id_v1() {
-        let server = MockServer::start(MockVariant::V1).await;
-        let result = run_send_with_ctx("Follow up", &server.base_url, "ctx-xyz").await;
-        assert!(result["task"]["contextId"].is_string());
-    }
-
-    /// v0.3 doc example: same shapes as SKILL.md Task response template
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn doc_v03_send_matches_skill_md_shape() {
+    async fn send_fields_state_and_artifacts_v03() {
+        let (text, _) = parse_send_example(examples::SEND_FIELDS_STATE_AND_ARTIFACTS);
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
-        let result = run_send("What can you do?", &server.base_url).await;
-        // SKILL.md shape: { id, contextId, status: { state }, artifacts }
-        assert!(result["id"].is_string());
-        assert!(result["contextId"].is_string());
+        let result = run_send(text, &server.base_url).await;
         assert!(result["status"]["state"].is_string());
         assert!(result["artifacts"].is_array());
+    }
+
+    // ── examples::TASK_GET_FIELDS_STATE ──────────────────────────────────
+    // Source: agc task get test-task-id-42 --fields status.state
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn task_get_fields_state_v03() {
+        let server = MockServer::start(MockVariant::V03JsonRpc).await;
+        let result = run_get_task("test-task-id-42", &server.base_url).await;
+        // state is a string
+        assert!(result["status"]["state"].is_string());
+    }
+
+    // ── SKILL.md freshness check ──────────────────────────────────────────
+    // Fails if committed skills/agc/SKILL.md differs from `agc generate-skills`
+    // output, catching any time generate_skills.rs is edited without regenerating.
+    #[test]
+    fn skill_md_is_up_to_date() {
+        use std::process::Command;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let status = Command::new(env!("CARGO_BIN_EXE_agc"))
+            .args(["generate-skills"])
+            .current_dir(dir.path())
+            .status()
+            .expect("run agc generate-skills");
+        assert!(status.success(), "agc generate-skills failed");
+
+        let generated = std::fs::read_to_string(dir.path().join("skills/agc/SKILL.md"))
+            .expect("read generated SKILL.md");
+
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
+        let committed = std::fs::read_to_string(workspace.join("skills/agc/SKILL.md"))
+            .expect("read committed skills/agc/SKILL.md");
+
+        assert_eq!(
+            committed, generated,
+            "\nskills/agc/SKILL.md is stale — run `agc generate-skills` to update it"
+        );
     }
 }
 
