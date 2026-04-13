@@ -1,15 +1,33 @@
 # Release workflow for @rover/agent-cli
 #
-# Triggered by pushing a semver tag (e.g. v0.1.0).
-# Builds platform binaries, creates a GitHub Release, and publishes to npm.
+# Two entry points:
+#
+#   1. workflow_dispatch — choose "release" or "rc".
+#      The plan job uses git-cliff to detect the next semver from
+#      conventional commits, then pushes the tag. The tag push
+#      re-triggers this same workflow (entry point 2).
+#
+#   2. push: tag — builds platform binaries, generates a changelog
+#      with git-cliff, creates a GitHub Release, and publishes to npm
+#      (release tags only, not rc).
 
 name: Release
+
 permissions:
   contents: write
   attestations: write
   id-token: write
 
 on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        type: choice
+        options:
+          - release
+          - rc
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
@@ -18,25 +36,78 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # ── plan ──────────────────────────────────────────────────────────────────
+  # On workflow_dispatch: determine next version, push tag, then exit.
+  #   The tag push re-triggers this workflow at the "push: tags" entry point.
+  # On tag push: extract version/prerelease from the tag.
   plan:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.meta.outputs.version }}
+      tag:        ${{ steps.meta.outputs.tag }}
+      version:    ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
-      - id: meta
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0   # git-cliff needs full history
+
+      - name: Install git-cliff
+        if: github.event_name == 'workflow_dispatch'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Bump version and push tag
+        if: github.event_name == 'workflow_dispatch'
+        id: bump
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//')
+          if [ -z "$NEXT" ]; then
+            echo "::error::git-cliff could not determine next version — no conventional commits found since last tag"
+            exit 1
+          fi
+
+          if [ "${{ inputs.release_type }}" = "rc" ]; then
+            LATEST=$(git tag -l "v${NEXT}-rc.*" | sort -V | tail -1)
+            if [ -z "$LATEST" ]; then
+              N=1
+            else
+              N=$(echo "$LATEST" | grep -oP '(?<=rc\.)\d+$')
+              N=$((N + 1))
+            fi
+            TAG="v${NEXT}-rc.${N}"
+          else
+            TAG="v${NEXT}"
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve tag metadata
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ steps.bump.outputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
           VERSION="${TAG#v}"
+          echo "tag=${TAG}"        >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           if [[ "$VERSION" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # ── build ─────────────────────────────────────────────────────────────────
+  # Only runs on tag push (the workflow_dispatch run exits after plan).
   build:
     needs: plan
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -128,13 +199,15 @@ jobs:
             agc-${{ matrix.target }}.${{ matrix.archive }}
             agc-${{ matrix.target }}.${{ matrix.archive }}.sha256
 
+  # ── release ───────────────────────────────────────────────────────────────
   release:
     needs: [plan, build]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          fetch-depth: 0   # full history required for git-cliff
+          fetch-depth: 0   # git-cliff needs full history
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
@@ -143,9 +216,8 @@ jobs:
 
       - name: Generate changelog
         run: |
-          git-cliff --tag "${{ github.ref_name }}" --unreleased --strip header \
+          git-cliff --tag "${{ needs.plan.outputs.tag }}" --unreleased --strip header \
             -o changelog-release.md
-          echo "--- changelog ---"
           cat changelog-release.md
 
       - uses: actions/download-artifact@v4
@@ -177,8 +249,8 @@ Replace \`<target>\` with your platform (e.g., \`aarch64-apple-darwin\` or \`x86
 
 \`\`\`bash
 # 1. Download the archive and its checksum
-curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz
-curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ github.ref_name }}/agc-<target>.tar.gz.sha256
+curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ needs.plan.outputs.tag }}/agc-<target>.tar.gz
+curl -sLO https://github.com/sg-genai/genai-cli/releases/download/${{ needs.plan.outputs.tag }}/agc-<target>.tar.gz.sha256
 
 # 2. Verify the checksum
 shasum -a 256 -c agc-<target>.tar.gz.sha256
@@ -190,20 +262,20 @@ sudo mv agc /usr/local/bin/
 \`\`\`
 "
 
-          # Prepend installation notes to the git-cliff changelog
           { echo "$INSTALL_NOTES"; echo "---"; echo ""; cat changelog-release.md; } > release-notes.md
 
-          gh release create "${{ github.ref_name }}" \
+          gh release create "${{ needs.plan.outputs.tag }}" \
             --target "${{ github.sha }}" \
-            --title "${{ github.ref_name }}" \
+            --title "${{ needs.plan.outputs.tag }}" \
             --notes-file release-notes.md \
             $PRERELEASE_FLAG \
             artifacts/*
 
+  # ── publish-npm ───────────────────────────────────────────────────────────
   publish-npm:
     needs: [plan, release]
+    if: github.event_name == 'push' && needs.plan.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
-    if: needs.plan.outputs.prerelease == 'false'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
@@ -251,12 +323,10 @@ sudo mv agc /usr/local/bin/
         run: |
           VERSION="${{ needs.plan.outputs.version }}"
 
-          # Bump version field in every package.json
           for pkg in npm npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
             npm version --no-git-tag-version --prefix "$pkg" "$VERSION"
           done
 
-          # Align optionalDependencies in the main package to the same version
           node -e "
             const fs = require('fs');
             const f = 'npm/package.json';
