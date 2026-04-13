@@ -55,6 +55,11 @@ impl OAuthConfig {
 // ── Path helpers ──────────────────────────────────────────────────────
 
 pub fn config_dir() -> Result<PathBuf> {
+    // Allow tests (and headless environments) to redirect config to an isolated
+    // temp directory so they don't pollute the developer's real config.
+    if let Ok(dir) = std::env::var("AGC_CONFIG_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
     let base = dirs::config_dir()
         .ok_or_else(|| AgcError::Config("cannot locate config directory".to_string()))?;
     Ok(base.join(CONFIG_DIR))

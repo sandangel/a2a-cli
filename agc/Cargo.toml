@@ -78,7 +78,10 @@ prost-types         = "0.13"
 serde_json          = "1"
 
 [dev-dependencies]
-serial_test = "3"
+serial_test  = "3"
+axum         = { workspace = true }
+a2a-server   = { package = "agntcy-a2a-server", path = "../a2a-rs/a2a-server" }
+async-trait  = "0.1"
 
 # ── Platform-specific keyring backends ───────────────────────────────
 # Without explicit features, keyring v3 uses an in-process mock (no persistence).
