@@ -63,42 +63,54 @@ agc send "your request"       # send — returns Task JSON when complete
 
 ## Reading the Reply
 
-The agent's answer is always in `status.message.parts`. Always check `status.state` first.
+Per the A2A spec, task outputs are in `artifacts`. `status.message` is only set
+for in-progress communication (e.g. `input-required`), not for the final answer.
+Always check `status.state` first.
 
 ```bash
 # Full JSON response (default)
 agc send "Summarise this PR"
 
 # Extract just the reply — preferred for AI tools
-agc send "Summarise this PR" --fields status.message.parts
+agc send "Summarise this PR" --fields artifacts
 
 # Extract state and reply together
-agc send "Summarise this PR" --fields status.state,status.message.parts
+agc send "Summarise this PR" --fields status.state,artifacts
 ```
 
-**Response shape:**
+**Response shape (Task — most agents):**
 ```json
 {{
   "id": "task-abc123",
   "contextId": "ctx-abc123",
-  "status": {{
-    "state": "TASK_STATE_COMPLETED",
-    "message": {{
-      "role": "ROLE_AGENT",
-      "parts": [{{"text": "The agent's answer"}}]
+  "status": {{ "state": "completed" }},
+  "artifacts": [
+    {{
+      "artifactId": "...",
+      "parts": [{{"kind": "text", "text": "The agent's answer"}}]
     }}
-  }}
+  ]
 }}
 ```
 
+**Response shape (Message — simple stateless agents):**
+```json
+{{
+  "role": "agent",
+  "parts": [{{"kind": "text", "text": "The agent's answer"}}]
+}}
+```
+
+Use `--fields parts` when the agent returns a direct Message.
+
 | `status.state` | Meaning | Action |
 |---|---|---|
-| `TASK_STATE_SUBMITTED` | Queued | Wait or poll |
-| `TASK_STATE_WORKING` | In progress | Poll with `agc get-task <id>` |
-| `TASK_STATE_COMPLETED` | Done | Read `status.message.parts` |
-| `TASK_STATE_FAILED` | Error | Read `status.message` for details |
-| `TASK_STATE_INPUT_REQUIRED` | Agent needs input | Reply with `agc send --task-id <id> "..."` |
-| `TASK_STATE_CANCELED` | Canceled | — |
+| `submitted` | Queued | Wait or poll |
+| `working` | In progress | Poll with `agc get-task <id>` |
+| `completed` | Done | Read `artifacts[*].parts` |
+| `failed` | Error | Read `status.message` for details |
+| `input-required` | Agent needs input | Read `status.message.parts`, reply with `agc send --task-id <id> "..."` |
+| `canceled` | Canceled | — |
 
 ## Agent Management
 
@@ -147,7 +159,7 @@ agc stream "<text>"                         # streaming — prints events as the
 | `--fields a,b.c` | Filter to dot-notation paths — **preferred for AI tools** |
 
 ```bash
-agc send "Hello" --fields status.message.parts   # reply only
+agc send "Hello" --fields artifacts              # reply only
 agc send "Hello" --fields id,status.state        # task id + state
 agc --format table agent list                    # human-readable table
 agc --format table auth status
@@ -174,7 +186,7 @@ agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
 agc get-task <id>                     # fetch task by ID
 agc get-task <id> --fields status.state
 agc list-tasks                        # recent tasks
-agc list-tasks --status TASK_STATE_WORKING
+agc list-tasks --status working
 agc list-tasks --context-id <id>
 agc cancel-task <id>                  # CONFIRM WITH USER before running
 agc subscribe <id>                    # stream live task updates (SSE)
