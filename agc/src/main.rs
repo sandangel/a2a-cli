@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use agc::auth::refresh_if_expired;
 use agc::cli::{Cli, Command};
-use agc::client::{resolve_all_targets, resolve_target};
+use agc::client::{resolve_all_targets, resolve_explicit_targets, resolve_target};
 use agc::commands::{
     agent::run_agent, auth::run_auth, config::run_config, generate_skills::run_generate_skills,
     schema::run_schema,
@@ -55,9 +55,13 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
     let format = args.format.clone();
     let command = Arc::new(cli.command);
 
-    // Multi-agent: --all — dispatch in parallel, print results first-done-first.
-    if args.all {
-        let targets = resolve_all_targets()?;
+    // Multi-agent: --all or multiple --agent flags — dispatch in parallel.
+    if args.all || args.agent.len() > 1 {
+        let targets = if args.all {
+            resolve_all_targets()?
+        } else {
+            resolve_explicit_targets(args)?
+        };
         let futs: FuturesUnordered<_> = targets
             .into_iter()
             .map(|t| {

@@ -11,30 +11,32 @@ pub struct ResolvedAgent {
     pub agent: Agent,
 }
 
-/// Resolve the target agent from global args + config.
-/// Returns the alias (or URL), the agent config, and the bearer token if any.
+/// Resolve a single target agent from global args + config.
+/// Priority: first --agent value → AGC_AGENT_URL env → config current_agent.
 pub fn resolve_target(args: &GlobalArgs) -> Result<ResolvedAgent> {
     let cfg = load()?;
 
-    let name = match args.agent.as_deref() {
-        Some(a) => {
-            // Validate user-supplied --agent value before use.
-            if a.starts_with("http://") || a.starts_with("https://") {
-                validate_agent_url(a)?;
+    let name = if let Some(a) = args.agent.first() {
+        // Validate user-supplied --agent value before use.
+        if a.starts_with("http://") || a.starts_with("https://") {
+            validate_agent_url(a)?;
+        } else {
+            validate_alias(a)?;
+        }
+        a.clone()
+    } else if let Ok(env_val) = std::env::var("AGC_AGENT_URL") {
+        if !env_val.is_empty() {
+            if env_val.starts_with("http://") || env_val.starts_with("https://") {
+                validate_agent_url(&env_val)?;
             } else {
-                validate_alias(a)?;
+                validate_alias(&env_val)?;
             }
-            a.to_string()
+            env_val
+        } else {
+            resolve_current_agent(&cfg)?
         }
-        None => {
-            if cfg.current_agent.is_empty() {
-                return Err(AgcError::Config(
-                    "no agent specified — use --agent <alias|url> or run: agc agent use <alias>"
-                        .to_string(),
-                ));
-            }
-            cfg.current_agent.clone()
-        }
+    } else {
+        resolve_current_agent(&cfg)?
     };
 
     match cfg.resolve_agent(&name) {
@@ -47,6 +49,45 @@ pub fn resolve_target(args: &GlobalArgs) -> Result<ResolvedAgent> {
             "unknown agent {name:?} — register with: agc agent add {name} <url>"
         ))),
     }
+}
+
+fn resolve_current_agent(cfg: &crate::config::Config) -> Result<String> {
+    if cfg.current_agent.is_empty() {
+        return Err(AgcError::Config(
+            "no agent specified — use --agent <alias|url> or run: agc agent use <alias>"
+                .to_string(),
+        ));
+    }
+    Ok(cfg.current_agent.clone())
+}
+
+/// Resolve explicit --agent targets (for `--agent a --agent b` parallel dispatch).
+pub fn resolve_explicit_targets(args: &GlobalArgs) -> Result<Vec<ResolvedAgent>> {
+    let cfg = load()?;
+    args.agent
+        .iter()
+        .map(|a| {
+            if a.starts_with("http://") || a.starts_with("https://") {
+                validate_agent_url(a)?;
+            } else {
+                validate_alias(a)?;
+            }
+            cfg.resolve_agent(a)
+                .map(|agent| {
+                    let url = agent.url.clone();
+                    ResolvedAgent {
+                        alias: a.clone(),
+                        url,
+                        agent,
+                    }
+                })
+                .ok_or_else(|| {
+                    AgcError::Config(format!(
+                        "unknown agent {a:?} — register with: agc agent add {a} <url>"
+                    ))
+                })
+        })
+        .collect()
 }
 
 /// Resolve all target agents for --all.

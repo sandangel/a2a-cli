@@ -29,9 +29,10 @@ pub struct Cli {
 
 #[derive(Debug, Args)]
 pub struct GlobalArgs {
-    /// Agent alias or URL (env: AGC_AGENT_URL)
-    #[arg(long = "agent", short = 'a', global = true, env = "AGC_AGENT_URL")]
-    pub agent: Option<String>,
+    /// Agent alias or URL — repeatable for parallel multi-agent dispatch.
+    /// Set AGC_AGENT_URL to configure a single default agent via environment.
+    #[arg(long = "agent", short = 'a', global = true, action = clap::ArgAction::Append)]
+    pub agent: Vec<String>,
 
     /// Send to ALL registered agents in parallel
     #[arg(long, global = true)]

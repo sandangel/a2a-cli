@@ -50,7 +50,7 @@ pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
             );
         }
         AuthCommand::Status => {
-            if args.agent.is_some() {
+            if !args.agent.is_empty() {
                 let target = resolve_target(args)?;
                 let s = token_status(&target.url)?;
                 print_value(
