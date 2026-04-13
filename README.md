@@ -33,6 +33,25 @@ cargo build -p agc --release
 # binary: target/release/agc
 ```
 
+## AI agent skills
+
+Install the `agc` skill so your AI coding tool (Claude Code, Cursor, Copilot, etc.) knows how to use this CLI:
+
+```bash
+# npx
+npx skills add sg-genai/genai-cli
+
+# bun
+bunx skills add sg-genai/genai-cli
+```
+
+To generate per-agent skills from live agent cards:
+
+```bash
+agc agent generate-skills           # all registered agents
+agc agent generate-skills rover     # specific alias
+```
+
 ## Quick start
 
 ```bash
