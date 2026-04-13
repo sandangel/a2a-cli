@@ -368,7 +368,7 @@ pub async fn fetch_card_raw(base_url: &str, bearer: Option<&str>) -> Result<serd
 }
 
 pub(crate) fn build_http_client(bearer: Option<&str>) -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder();
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30));
     if let Some(token) = bearer {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(

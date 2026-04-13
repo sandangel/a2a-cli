@@ -38,6 +38,26 @@ impl AgcError {
             _ => 5,
         }
     }
+
+    /// Whether retrying the same request might succeed.
+    ///
+    /// HTTP 5xx / connection errors are transient; 4xx, auth, config, and
+    /// invalid-input errors are permanent — retrying won't help.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            AgcError::Http(e) => {
+                // Connection-level errors (timeout, reset) are retryable.
+                // HTTP 5xx responses are retryable; 4xx are permanent.
+                e.is_timeout() || e.is_connect() || e.status().is_some_and(|s| s.is_server_error())
+            }
+            AgcError::A2A(_) | AgcError::V03(_) => true,
+            AgcError::Auth(_)
+            | AgcError::Config(_)
+            | AgcError::InvalidInput(_)
+            | AgcError::Json(_)
+            | AgcError::Io(_) => false,
+        }
+    }
 }
 
 /// Converts a streaming SSE error into `AgcError`.
@@ -83,6 +103,26 @@ mod tests {
     fn exit_code_io_error() {
         let e = AgcError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x"));
         assert_eq!(e.exit_code(), 5);
+    }
+
+    #[test]
+    fn is_retryable_auth_is_false() {
+        assert!(!AgcError::Auth("expired".into()).is_retryable());
+    }
+
+    #[test]
+    fn is_retryable_config_is_false() {
+        assert!(!AgcError::Config("bad config".into()).is_retryable());
+    }
+
+    #[test]
+    fn is_retryable_invalid_input_is_false() {
+        assert!(!AgcError::InvalidInput("bad arg".into()).is_retryable());
+    }
+
+    #[test]
+    fn is_retryable_a2a_is_true() {
+        assert!(AgcError::A2A(a2a::A2AError::internal("server error")).is_retryable());
     }
 
     #[test]

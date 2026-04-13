@@ -81,12 +81,24 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
             })
             .collect();
         let mut stream = futs;
+        let mut any_success = false;
+        let mut last_err: Option<agc::error::AgcError> = None;
         while let Some(result) = stream.next().await {
             match result {
-                Ok(Ok((alias, url, v))) => print_agent_json(&alias, &url, &v, fields)?,
-                Ok(Err(e)) => eprintln!("error: {e}"),
+                Ok(Ok((alias, url, v))) => {
+                    print_agent_json(&alias, &url, &v, fields)?;
+                    any_success = true;
+                }
+                Ok(Err(e)) => {
+                    eprintln!("error: {e}");
+                    last_err = Some(e);
+                }
                 Err(e) => eprintln!("task error: {e}"),
             }
+        }
+        // If every agent failed, propagate the last error so the process exits non-zero.
+        if !any_success && let Some(e) = last_err {
+            return Err(e);
         }
         return Ok(());
     }

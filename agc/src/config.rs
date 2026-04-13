@@ -78,7 +78,10 @@ pub fn load() -> Result<Config> {
     }
     let data = std::fs::read_to_string(&path)
         .map_err(|e| AgcError::Config(format!("read config: {e}")))?;
-    serde_yaml::from_str(&data).map_err(|e| AgcError::Config(format!("parse config: {e}")))
+    let cfg: Config =
+        serde_yaml::from_str(&data).map_err(|e| AgcError::Config(format!("parse config: {e}")))?;
+    cfg.check_invariants()?;
+    Ok(cfg)
 }
 
 pub fn save(cfg: &Config) -> Result<()> {
@@ -107,13 +110,33 @@ impl Config {
         None
     }
 
+    /// Return the active agent `(alias, &Agent)`, or `None` if none is set.
+    ///
+    /// Returns `None` in two cases:
+    /// - `current_agent` is empty (no active agent configured)
+    /// - `current_agent` names an alias not present in `agents` (broken aggregate
+    ///   invariant — happens if an agent is removed without clearing the active alias)
     pub fn active_agent(&self) -> Option<(&str, &Agent)> {
         if self.current_agent.is_empty() {
             return None;
         }
-        self.agents
-            .get(&self.current_agent)
-            .map(|a| (self.current_agent.as_str(), a))
+        let agent = self.agents.get(&self.current_agent)?;
+        // Invariant: current_agent must name a registered alias.
+        // If it doesn't (stale reference after `agent remove`), treat as "no active
+        // agent" so the caller gets a clear Config error from resolve_current_agent().
+        Some((self.current_agent.as_str(), agent))
+    }
+
+    /// Assert the aggregate invariant: if `current_agent` is set it must exist in
+    /// `agents`.  Call this after any mutation that could break the invariant.
+    pub(crate) fn check_invariants(&self) -> crate::error::Result<()> {
+        if !self.current_agent.is_empty() && !self.agents.contains_key(&self.current_agent) {
+            return Err(crate::error::AgcError::Config(format!(
+                "active agent {:?} is not registered — run: agc agent add {:?} <url>",
+                self.current_agent, self.current_agent,
+            )));
+        }
+        Ok(())
     }
 }
 
