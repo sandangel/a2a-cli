@@ -67,9 +67,11 @@ Multi-agent output is always NDJSON — one compact JSON line per agent, each ta
 agc send "Your message"
 agc send "Your message" --fields artifacts
 
-# Continue a conversation
-agc send "Follow up"   --task-id   task-abc
-agc send "Another one" --context-id ctx-abc
+# Start a conversation and capture the context ID
+agc send "My name is San." --fields contextId,artifacts
+
+# Continue the conversation — rover uses contextId for chat history
+agc send "What is my name?" --context-id <contextId from above>
 
 # Stream events as they arrive
 agc stream "Your message"

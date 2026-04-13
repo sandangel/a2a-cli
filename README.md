@@ -67,6 +67,10 @@ agc send "Hello, agent!"
 
 # Get just the reply (artifacts hold task output per A2A spec)
 agc send "What is 2+2?" --fields artifacts
+
+# Multi-turn conversation — capture contextId then continue with it
+agc send "My name is San." --fields contextId,artifacts
+agc send "What is my name?" --context-id <contextId>
 ```
 
 ## Commands
