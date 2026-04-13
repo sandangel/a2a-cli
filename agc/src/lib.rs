@@ -4,6 +4,7 @@ pub mod auth_commands; // stub satisfying credential_store's crate::auth_command
 #[path = "../../gws-cli/crates/google-workspace-cli/src/fs_util.rs"]
 pub mod fs_util;
 
+#[allow(clippy::should_implement_trait, clippy::collapsible_if)]
 #[path = "../../gws-cli/crates/google-workspace-cli/src/formatter.rs"]
 pub mod formatter;
 
