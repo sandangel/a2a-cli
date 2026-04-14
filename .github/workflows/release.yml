@@ -42,6 +42,7 @@ jobs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
       prev_tag:   ${{ steps.meta.outputs.prev_tag }}
       build_env:  ${{ steps.meta.outputs.build_env }}
+      npm_tag:    ${{ steps.meta.outputs.npm_tag }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -126,8 +127,10 @@ jobs:
 
           if [[ "$VERSION" == *-rc.* ]]; then
             echo "build_env=stg" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=next"  >> "$GITHUB_OUTPUT"
           else
-            echo "build_env=prod" >> "$GITHUB_OUTPUT"
+            echo "build_env=prod"   >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest"   >> "$GITHUB_OUTPUT"
           fi
 
           echo "resolved: tag=${TAG}, prev_tag=${PREV}"
@@ -195,75 +198,7 @@ jobs:
   # ── publish-npm ─────────────────────────────────────────────────────────────
   publish-npm:
     needs: [plan, release]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-
-      - name: Authenticate to Artifactory
-        id: auth
-        uses: sg-innersource/artifactory-oidc-access@v2.0.12
-
-      - name: Configure npm registry
-        run: |
-          REGISTRY="https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
-          npm config set @rover:registry "${REGISTRY}"
-          echo "//${REGISTRY#https:}:_authToken=${{ steps.auth.outputs.artifactory-token }}" >> ~/.npmrc
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: binary-*
-          path: artifacts/
-          merge-multiple: true
-
-      - name: Extract binaries into platform packages
-        run: |
-          VERSION="${{ needs.plan.outputs.version }}"
-
-          mkdir -p npm/packages/@rover/agent-cli-darwin-arm64/bin
-          tar xzf artifacts/agc-aarch64-apple-darwin.tar.gz -C npm/packages/@rover/agent-cli-darwin-arm64/bin ./agc
-          chmod +x npm/packages/@rover/agent-cli-darwin-arm64/bin/agc
-
-          mkdir -p npm/packages/@rover/agent-cli-darwin-x64/bin
-          tar xzf artifacts/agc-x86_64-apple-darwin.tar.gz -C npm/packages/@rover/agent-cli-darwin-x64/bin ./agc
-          chmod +x npm/packages/@rover/agent-cli-darwin-x64/bin/agc
-
-          mkdir -p npm/packages/@rover/agent-cli-linux-arm64/bin
-          tar xzf artifacts/agc-aarch64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/agent-cli-linux-arm64/bin ./agc
-          chmod +x npm/packages/@rover/agent-cli-linux-arm64/bin/agc
-
-          mkdir -p npm/packages/@rover/agent-cli-linux-x64/bin
-          tar xzf artifacts/agc-x86_64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/agent-cli-linux-x64/bin ./agc
-          chmod +x npm/packages/@rover/agent-cli-linux-x64/bin/agc
-
-          mkdir -p npm/packages/@rover/agent-cli-win32-x64/bin
-          unzip -j artifacts/agc-x86_64-pc-windows-gnu.zip "*/agc.exe" -d npm/packages/@rover/agent-cli-win32-x64/bin/
-
-      - name: Set version in all packages
-        run: |
-          VERSION="${{ needs.plan.outputs.version }}"
-
-          for pkg in npm npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
-            npm version --no-git-tag-version --prefix "$pkg" "$VERSION"
-          done
-
-          node -e "
-            const fs = require('fs');
-            const f = 'npm/package.json';
-            const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
-            for (const k in pkg.optionalDependencies) pkg.optionalDependencies[k] = process.argv[1];
-            fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
-          " "$VERSION"
-
-      - name: Publish platform packages
-        run: |
-          for pkg in npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
-            npm publish "$pkg"
-          done
-
-      - name: Publish main package
-        working-directory: npm
-        run: npm publish
+    uses: ./.github/workflows/publish-npm.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      npm_tag: ${{ needs.plan.outputs.npm_tag }}

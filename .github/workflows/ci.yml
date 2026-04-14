@@ -35,7 +35,32 @@ jobs:
       - name: YAML validation
         run: uvx pre-commit run check-yaml --all-files
 
+  version:
+    # Compute the dev version string: <cargo-version>-dev.<short-sha>
+    # Only needed on main pushes (PRs don't publish).
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.compute.outputs.value }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: compute
+        run: |
+          CARGO_VERSION=$(grep '^version' agc/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          echo "value=${CARGO_VERSION}-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
   build:
     uses: ./.github/workflows/build.yml
     with:
       build_env: dev
+      upload_artifacts: ${{ github.event_name == 'push' }}
+
+  publish-npm:
+    # Only publish on main pushes, not PRs.
+    if: github.event_name == 'push'
+    needs: [version, build]
+    uses: ./.github/workflows/publish-npm.yml
+    with:
+      version: ${{ needs.version.outputs.value }}
+      npm_tag: dev

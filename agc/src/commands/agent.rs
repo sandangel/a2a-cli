@@ -396,3 +396,127 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
 fn bool_icon(b: bool) -> &'static str {
     if b { "yes" } else { "no" }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::test_utils::EnvGuard;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    /// Spawn a minimal HTTP server that serves `body` for any GET request.
+    async fn spawn_card_server(body: &'static str) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+        let handle = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                let (read_half, mut write_half) = tokio::io::split(stream);
+                let mut reader = BufReader::new(read_half);
+                let mut line = String::new();
+                // drain request headers
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).await.unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = write_half.write_all(resp.as_bytes()).await;
+            }
+        });
+        (base_url, handle)
+    }
+
+    const MINIMAL_CARD: &str = r#"{
+        "name": "Test Agent",
+        "version": "1.0.0",
+        "description": "A test agent",
+        "url": "http://127.0.0.1",
+        "capabilities": {},
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+        "skills": []
+    }"#;
+
+    fn default_global_args() -> GlobalArgs {
+        GlobalArgs {
+            agent: vec![],
+            all: false,
+            fields: None,
+            compact: false,
+            format: Default::default(),
+            transport: None,
+            bearer_token: None,
+            tenant: None,
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn add_generates_skill_when_card_reachable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _cfg_guard = EnvGuard::set("AGC_CONFIG_DIR", tmp.path());
+        // Run from the temp dir so skills/<alias>/SKILL.md lands there
+        let _dir_guard = std::env::set_current_dir(tmp.path());
+
+        let (base_url, _server) = spawn_card_server(MINIMAL_CARD).await;
+
+        let cmd = AgentCommand::Add(AddArgs {
+            alias: "myagent".to_string(),
+            url: base_url.clone(),
+            description: None,
+            client_id: None,
+            scopes: vec![],
+            transport: None,
+        });
+        run_agent(&cmd, &default_global_args()).await.unwrap();
+
+        let skill_path = tmp.path().join("skills/myagent/SKILL.md");
+        assert!(skill_path.exists(), "SKILL.md should be written after add");
+        let content = std::fs::read_to_string(&skill_path).unwrap();
+        assert!(
+            content.contains("myagent"),
+            "skill should reference the alias"
+        );
+        assert!(
+            content.contains("Test Agent"),
+            "skill should include agent name from card"
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn add_succeeds_when_card_unreachable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _cfg_guard = EnvGuard::set("AGC_CONFIG_DIR", tmp.path());
+        let _dir_guard = std::env::set_current_dir(tmp.path());
+
+        // Port 1 is reserved and will be refused immediately
+        let cmd = AgentCommand::Add(AddArgs {
+            alias: "offline".to_string(),
+            url: "http://127.0.0.1:1".to_string(),
+            description: None,
+            client_id: None,
+            scopes: vec![],
+            transport: None,
+        });
+        // add must not fail even if the card fetch fails
+        run_agent(&cmd, &default_global_args()).await.unwrap();
+
+        // agent should still be registered
+        let cfg = {
+            let _cfg_guard2 = EnvGuard::set("AGC_CONFIG_DIR", tmp.path());
+            crate::config::load().unwrap()
+        };
+        assert!(
+            cfg.agents.contains_key("offline"),
+            "agent should be registered despite card failure"
+        );
+
+        // but no skill file should be written
+        assert!(!tmp.path().join("skills/offline/SKILL.md").exists());
+    }
+}
