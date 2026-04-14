@@ -27,6 +27,34 @@ use crate::error::{AgcError, Result};
 // ── Public entry points ───────────────────────────────────────────────
 
 /// Run a non-streaming command and return the result as a JSON Value.
+/// Retry `run_to_value` up to `MAX_RETRIES` times for transient errors,
+/// using exponential back-off (250 ms × 2^attempt, capped at 4 s).
+pub async fn run_to_value_with_retry(
+    command: &Command,
+    base_url: &str,
+    bearer: Option<&str>,
+    binding: Option<Binding>,
+    tenant: Option<&str>,
+) -> Result<serde_json::Value> {
+    const MAX_RETRIES: u32 = 3;
+    let mut attempt = 0u32;
+    loop {
+        match run_to_value(command, base_url, bearer, binding, tenant).await {
+            Ok(v) => return Ok(v),
+            Err(e) if e.is_retryable() && attempt < MAX_RETRIES => {
+                let delay_ms = (250u64 * (1 << attempt)).min(4_000);
+                eprintln!(
+                    "warning: transient error (attempt {}/{MAX_RETRIES}), retrying in {delay_ms} ms: {e}",
+                    attempt + 1
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Streaming commands (Stream, Subscribe) must use [`run_streaming`].
 pub async fn run_to_value(
     command: &Command,
@@ -213,10 +241,19 @@ pub async fn run_streaming(
                 .send_streaming_message(&req)
                 .await
                 .map_err(AgcError::A2A)?;
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(e) => on_event(serde_json::to_value(&e)?)?,
-                    Err(e) => return Err(AgcError::A2A(e)),
+            loop {
+                match tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await
+                {
+                    Ok(Some(Ok(e))) => on_event(serde_json::to_value(&e)?)?,
+                    Ok(Some(Err(e))) => {
+                        return Err(AgcError::A2A(e));
+                    }
+                    Ok(None) => break,
+                    Err(_) => {
+                        return Err(AgcError::InvalidInput(
+                            "stream timed out waiting for next event (30 s)".to_string(),
+                        ));
+                    }
                 }
             }
             let _ = client.destroy().await;
@@ -232,10 +269,17 @@ pub async fn run_streaming(
                 })
                 .await
                 .map_err(AgcError::A2A)?;
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(e) => on_event(serde_json::to_value(&e)?)?,
-                    Err(e) => return Err(AgcError::A2A(e)),
+            loop {
+                match tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await
+                {
+                    Ok(Some(Ok(e))) => on_event(serde_json::to_value(&e)?)?,
+                    Ok(Some(Err(e))) => return Err(AgcError::A2A(e)),
+                    Ok(None) => break,
+                    Err(_) => {
+                        return Err(AgcError::InvalidInput(
+                            "stream timed out waiting for next event (30 s)".to_string(),
+                        ));
+                    }
                 }
             }
             let _ = client.destroy().await;

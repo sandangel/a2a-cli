@@ -33,8 +33,19 @@ pub struct Agent {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub transport: String,
 
-    #[serde(default, skip_serializing_if = "OAuthConfig::is_empty")]
-    pub oauth: OAuthConfig,
+    /// OAuth config — `None` means no OAuth configured for this agent.
+    /// Distinguishes "not configured" from "configured with empty values".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<OAuthConfig>,
+}
+
+impl Agent {
+    /// Return a reference to the OAuth config, or the shared empty sentinel if not configured.
+    /// Callers should prefer this over unwrapping `oauth` directly.
+    pub fn oauth_or_default(&self) -> &OAuthConfig {
+        static EMPTY: OAuthConfig = OAuthConfig::EMPTY;
+        self.oauth.as_ref().unwrap_or(&EMPTY)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -47,9 +58,11 @@ pub struct OAuthConfig {
 }
 
 impl OAuthConfig {
-    fn is_empty(&self) -> bool {
-        self.client_id.is_empty() && self.scopes.is_empty()
-    }
+    /// Shared empty instance used as a fallback when OAuth is not configured.
+    pub const EMPTY: Self = Self {
+        client_id: String::new(),
+        scopes: Vec::new(),
+    };
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────
@@ -104,7 +117,7 @@ impl Config {
                 url: name_or_url.to_string(),
                 description: String::new(),
                 transport: String::new(),
-                oauth: OAuthConfig::default(),
+                oauth: None,
             });
         }
         None
@@ -149,7 +162,7 @@ mod tests {
             url: url.to_string(),
             description: String::new(),
             transport: String::new(),
-            oauth: OAuthConfig::default(),
+            oauth: None,
         }
     }
 
@@ -213,26 +226,18 @@ mod tests {
     // ── OAuthConfig ───────────────────────────────────────────────────
 
     #[test]
-    fn oauth_config_is_empty_when_default() {
-        assert!(OAuthConfig::default().is_empty());
+    fn agent_without_oauth_roundtrips() {
+        let agent = make_agent("https://example.com");
+        let yaml = serde_yaml::to_string(&agent).unwrap();
+        assert!(!yaml.contains("oauth"), "oauth absent when None: {yaml}");
+        let back: Agent = serde_yaml::from_str(&yaml).unwrap();
+        assert!(back.oauth.is_none());
     }
 
     #[test]
-    fn oauth_config_not_empty_with_client_id() {
-        let c = OAuthConfig {
-            client_id: "id".to_string(),
-            scopes: vec![],
-        };
-        assert!(!c.is_empty());
-    }
-
-    #[test]
-    fn oauth_config_not_empty_with_scopes() {
-        let c = OAuthConfig {
-            client_id: String::new(),
-            scopes: vec!["openid".to_string()],
-        };
-        assert!(!c.is_empty());
+    fn oauth_or_default_returns_empty_when_none() {
+        let agent = make_agent("https://example.com");
+        assert!(agent.oauth_or_default().client_id.is_empty());
     }
 
     // ── Serde roundtrip ───────────────────────────────────────────────
@@ -249,10 +254,10 @@ mod tests {
                 url: "https://example.com".to_string(),
                 description: "Test agent".to_string(),
                 transport: "jsonrpc".to_string(),
-                oauth: OAuthConfig {
+                oauth: Some(OAuthConfig {
                     client_id: "client".to_string(),
                     scopes: vec!["openid".to_string(), "email".to_string()],
-                },
+                }),
             },
         );
 
@@ -263,8 +268,9 @@ mod tests {
         let agent = back.agents.get("test").unwrap();
         assert_eq!(agent.url, "https://example.com");
         assert_eq!(agent.transport, "jsonrpc");
-        assert_eq!(agent.oauth.client_id, "client");
-        assert_eq!(agent.oauth.scopes, ["openid", "email"]);
+        let oauth = agent.oauth.as_ref().unwrap();
+        assert_eq!(oauth.client_id, "client");
+        assert_eq!(oauth.scopes, ["openid", "email"]);
     }
 
     #[test]
@@ -286,10 +292,10 @@ fn default_config() -> Config {
             url: format!("https://{host}/a2a/rover-agent"),
             description: "Rover Agent".to_string(),
             transport: String::new(),
-            oauth: OAuthConfig {
+            oauth: Some(OAuthConfig {
                 client_id: format!("https://{host}/a2a/agc/.well-known/client-metadata.json"),
                 scopes: vec![],
-            },
+            }),
         },
     );
     Config {

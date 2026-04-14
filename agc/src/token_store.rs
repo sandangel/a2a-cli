@@ -87,7 +87,10 @@ impl Backend {
 pub fn load_token(agent_url: &str) -> Result<Option<Token>> {
     let host = url_host(agent_url)?;
     let json = match Backend::from_env() {
-        Backend::Keyring => keyring_load(&host).or_else(|_| file_load(&host)),
+        Backend::Keyring => keyring_load(&host).or_else(|e| {
+            eprintln!("warning: keyring unavailable ({e}), falling back to encrypted file");
+            file_load(&host)
+        }),
         Backend::File => file_load(&host),
     };
     match json {
@@ -105,7 +108,10 @@ pub fn save_token(agent_url: &str, token: &Token) -> Result<()> {
     let json = serde_json::to_string(token)
         .map_err(|e| AgcError::Auth(format!("serialize token: {e}")))?;
     match Backend::from_env() {
-        Backend::Keyring => keyring_save(&host, &json).or_else(|_| file_save(&host, &json)),
+        Backend::Keyring => keyring_save(&host, &json).or_else(|e| {
+            eprintln!("warning: keyring save failed ({e}), using encrypted file instead");
+            file_save(&host, &json)
+        }),
         Backend::File => file_save(&host, &json),
     }
 }

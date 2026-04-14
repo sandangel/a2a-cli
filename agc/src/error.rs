@@ -14,8 +14,14 @@ pub enum AgcError {
     #[error("config error: {0}")]
     Config(String),
 
+    /// Authentication failed — credentials invalid or missing.
     #[error("auth error: {0}")]
     Auth(String),
+
+    /// Access token is expired. Callers can attempt a silent token refresh
+    /// before falling back to a full re-authentication (`agc auth login`).
+    #[error("auth error: token expired — run `agc auth login` to re-authenticate")]
+    AuthExpired,
 
     #[error("invalid input: {0}")]
     InvalidInput(String),
@@ -32,7 +38,7 @@ impl AgcError {
     pub fn exit_code(&self) -> i32 {
         match self {
             AgcError::A2A(_) | AgcError::Http(_) | AgcError::V03(_) => 1,
-            AgcError::Auth(_) => 2,
+            AgcError::Auth(_) | AgcError::AuthExpired => 2,
             AgcError::InvalidInput(_) => 3,
             AgcError::Config(_) => 4,
             _ => 5,
@@ -52,6 +58,7 @@ impl AgcError {
             }
             AgcError::A2A(_) | AgcError::V03(_) => true,
             AgcError::Auth(_)
+            | AgcError::AuthExpired
             | AgcError::Config(_)
             | AgcError::InvalidInput(_)
             | AgcError::Json(_)

@@ -1,8 +1,71 @@
 //! Input validation — thin wrappers over google_workspace::validate,
 //! plus A2A-specific checks.
+//!
+//! Validated newtypes (`AgentAlias`, `AgentUrl`) encode the invariant in the
+//! type: once constructed, callers don't need to re-validate.
 
 use crate::error::{AgcError, Result};
 pub use google_workspace::validate::is_dangerous_unicode;
+
+// ── Validated newtypes ────────────────────────────────────────────────
+
+/// A validated agent alias — not empty, no path separators, no control chars.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AgentAlias(String);
+
+impl AgentAlias {
+    pub fn new(s: impl Into<String>) -> Result<Self> {
+        let s = s.into();
+        validate_alias_str(&s)?;
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AgentAlias {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl AsRef<str> for AgentAlias {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A validated agent URL — must be `http://` or `https://`, no control chars.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentUrl(String);
+
+impl AgentUrl {
+    pub fn new(s: impl Into<String>) -> Result<Self> {
+        let s = s.into();
+        validate_url_str(&s)?;
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AgentUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl AsRef<str> for AgentUrl {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+// ── Core validation logic (reused by newtypes and free functions) ─────
 
 pub fn reject_dangerous_chars(value: &str, flag_name: &str) -> Result<()> {
     for c in value.chars() {
@@ -20,7 +83,7 @@ pub fn reject_dangerous_chars(value: &str, flag_name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_agent_url(url: &str) -> Result<()> {
+fn validate_url_str(url: &str) -> Result<()> {
     reject_dangerous_chars(url, "--agent")?;
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(AgcError::InvalidInput(format!(
@@ -30,7 +93,7 @@ pub fn validate_agent_url(url: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_alias(alias: &str) -> Result<()> {
+fn validate_alias_str(alias: &str) -> Result<()> {
     if alias.is_empty() {
         return Err(AgcError::InvalidInput(
             "alias must not be empty".to_string(),
@@ -43,6 +106,18 @@ pub fn validate_alias(alias: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+// ── Free functions (kept for backward compat call sites) ─────────────
+
+/// Validate an agent URL string; prefer `AgentUrl::new()` at boundaries.
+pub fn validate_agent_url(url: &str) -> Result<()> {
+    validate_url_str(url)
+}
+
+/// Validate an alias string; prefer `AgentAlias::new()` at boundaries.
+pub fn validate_alias(alias: &str) -> Result<()> {
+    validate_alias_str(alias)
 }
 
 pub fn validate_message_text(text: &str) -> Result<()> {
@@ -68,6 +143,57 @@ pub fn validate_message_text(text: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    // ── AgentAlias ────────────────────────────────────────────────────
+
+    #[test]
+    fn alias_newtype_valid() {
+        assert!(AgentAlias::new("rover").is_ok());
+    }
+
+    #[test]
+    fn alias_newtype_empty_rejected() {
+        assert!(AgentAlias::new("").is_err());
+    }
+
+    #[test]
+    fn alias_newtype_slash_rejected() {
+        assert!(AgentAlias::new("foo/bar").is_err());
+    }
+
+    #[test]
+    fn alias_newtype_as_str() {
+        let a = AgentAlias::new("my-agent").unwrap();
+        assert_eq!(a.as_str(), "my-agent");
+    }
+
+    // ── AgentUrl ──────────────────────────────────────────────────────
+
+    #[test]
+    fn url_newtype_https_valid() {
+        assert!(AgentUrl::new("https://example.com/a2a").is_ok());
+    }
+
+    #[test]
+    fn url_newtype_http_valid() {
+        assert!(AgentUrl::new("http://localhost:8080").is_ok());
+    }
+
+    #[test]
+    fn url_newtype_ftp_rejected() {
+        assert!(AgentUrl::new("ftp://example.com").is_err());
+    }
+
+    #[test]
+    fn url_newtype_bare_host_rejected() {
+        assert!(AgentUrl::new("example.com").is_err());
+    }
+
+    #[test]
+    fn url_newtype_as_str() {
+        let u = AgentUrl::new("https://example.com").unwrap();
+        assert_eq!(u.as_str(), "https://example.com");
+    }
+
     // ── reject_dangerous_chars ────────────────────────────────────────
 
     #[test]
@@ -82,7 +208,6 @@ mod tests {
 
     #[test]
     fn reject_bidi_override() {
-        // U+202E RIGHT-TO-LEFT OVERRIDE
         assert!(reject_dangerous_chars("foo\u{202E}bar", "flag").is_err());
     }
 
@@ -179,13 +304,11 @@ mod tests {
 
     #[test]
     fn message_text_bel_control_rejected() {
-        // U+0007 BEL
         assert!(validate_message_text("foo\x07bar").is_err());
     }
 
     #[test]
     fn message_text_bidi_override_rejected() {
-        // U+202E RIGHT-TO-LEFT OVERRIDE
         assert!(validate_message_text("foo\u{202E}bar").is_err());
     }
 

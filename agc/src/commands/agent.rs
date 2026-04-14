@@ -87,9 +87,13 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                     url: a.url.clone(),
                     description: a.description.clone().unwrap_or_default(),
                     transport: a.transport.clone().unwrap_or_default(),
-                    oauth: OAuthConfig {
-                        client_id: a.client_id.clone().unwrap_or_default(),
-                        scopes: a.scopes.clone(),
+                    oauth: if a.client_id.is_some() || !a.scopes.is_empty() {
+                        Some(OAuthConfig {
+                            client_id: a.client_id.clone().unwrap_or_default(),
+                            scopes: a.scopes.clone(),
+                        })
+                    } else {
+                        None
                     },
                 },
             );
@@ -130,7 +134,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                         "active": alias == &cfg.current_agent,
                         "transport": a.transport,
                         "description": a.description,
-                        "client_id": a.oauth.client_id,
+                        "client_id": a.oauth_or_default().client_id,
                     })
                 })
                 .collect();
@@ -177,7 +181,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                     "active": alias == cfg.current_agent,
                     "transport": agent.transport,
                     "description": agent.description,
-                    "oauth": { "client_id": agent.oauth.client_id, "scopes": agent.oauth.scopes },
+                    "oauth": { "client_id": agent.oauth_or_default().client_id, "scopes": agent.oauth_or_default().scopes },
                 }),
                 args.fields.as_deref(),
                 args.format.clone(),
@@ -225,10 +229,13 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                 agent.description = desc.clone();
             }
             if let Some(cid) = &a.client_id {
-                agent.oauth.client_id = cid.clone();
+                agent
+                    .oauth
+                    .get_or_insert_with(OAuthConfig::default)
+                    .client_id = cid.clone();
             }
             if !a.scopes.is_empty() {
-                agent.oauth.scopes = a.scopes.clone();
+                agent.oauth.get_or_insert_with(OAuthConfig::default).scopes = a.scopes.clone();
             }
             if let Some(t) = &a.transport {
                 agent.transport = t.clone();

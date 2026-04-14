@@ -12,7 +12,7 @@ use agc::commands::{
     schema::run_schema,
 };
 use agc::printer::{print_agent_json, print_json, print_value};
-use agc::runner::{is_streaming, run_streaming, run_to_value};
+use agc::runner::{is_streaming, run_streaming, run_to_value, run_to_value_with_retry};
 use agc::validate::validate_message_text;
 
 /// Resolve the bearer token: explicit flag takes priority, then stored token
@@ -68,7 +68,7 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
             .into_iter()
             .map(|t| {
                 let explicit_bearer = args.bearer_token.clone();
-                let client_id = t.agent.oauth.client_id.clone();
+                let client_id = t.agent.oauth_or_default().client_id.clone();
                 let binding = args.transport;
                 let tenant = args.tenant.clone();
                 let cmd = Arc::clone(&command);
@@ -108,7 +108,7 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
     let bearer = resolve_bearer(
         args.bearer_token.clone(),
         &target.url,
-        &target.agent.oauth.client_id,
+        &target.agent.oauth_or_default().client_id,
     )
     .await;
     let bearer = bearer.as_deref();
@@ -147,7 +147,7 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
     };
 
     let result = tokio::select! {
-        r = run_to_value(&command, &target.url, bearer, binding, tenant) => r,
+        r = run_to_value_with_retry(&command, &target.url, bearer, binding, tenant) => r,
         _ = tokio::signal::ctrl_c() => {
             if let Some(pb) = &spinner { pb.finish_and_clear(); }
             eprintln!("\nInterrupted.");

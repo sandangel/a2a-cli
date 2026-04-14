@@ -143,15 +143,15 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
             token_url,
             scopes,
         }) => {
-            let cfg_scopes = if agent.oauth.scopes.is_empty() {
+            let cfg_scopes = if agent.oauth_or_default().scopes.is_empty() {
                 scopes
             } else {
-                &agent.oauth.scopes
+                &agent.oauth_or_default().scopes
             };
             auth_code_pkce_flow(
                 auth_url,
                 token_url,
-                &agent.oauth.client_id,
+                &agent.oauth_or_default().client_id,
                 cfg_scopes,
                 agent_url,
             )
@@ -162,28 +162,33 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
             token_url,
             scopes,
         }) => {
-            let cfg_scopes = if agent.oauth.scopes.is_empty() {
+            let cfg_scopes = if agent.oauth_or_default().scopes.is_empty() {
                 scopes
             } else {
-                &agent.oauth.scopes
+                &agent.oauth_or_default().scopes
             };
             device_code_flow(
                 device_auth_url,
                 token_url,
-                &agent.oauth.client_id,
+                &agent.oauth_or_default().client_id,
                 cfg_scopes,
                 agent_url,
             )
             .await?
         }
         Some(OAuthFlow::ClientCredentials { token_url, scopes }) => {
-            let cfg_scopes = if agent.oauth.scopes.is_empty() {
+            let cfg_scopes = if agent.oauth_or_default().scopes.is_empty() {
                 scopes
             } else {
-                &agent.oauth.scopes
+                &agent.oauth_or_default().scopes
             };
-            client_credentials_flow(token_url, &agent.oauth.client_id, cfg_scopes, agent_url)
-                .await?
+            client_credentials_flow(
+                token_url,
+                &agent.oauth_or_default().client_id,
+                cfg_scopes,
+                agent_url,
+            )
+            .await?
         }
         None => return Ok(None),
     };
