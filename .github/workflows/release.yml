@@ -132,26 +132,31 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
+            runner: macos-latest
             archive: tar.gz
-            zigbuild: true
           - target: x86_64-apple-darwin
+            runner: macos-latest
             archive: tar.gz
-            zigbuild: true
           - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
             archive: tar.gz
             cross: true
           - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
             archive: tar.gz
             cross: true
           - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
             archive: tar.gz
           - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
             archive: tar.gz
             cross: true
           - target: x86_64-pc-windows-gnu
+            runner: ubuntu-latest
             archive: zip
             cross: true
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -167,19 +172,9 @@ jobs:
         if: matrix.cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
 
-      - name: Install cargo-zigbuild
-        if: matrix.zigbuild == true
-        run: |
-          pip3 install ziglang
-          cargo install cargo-zigbuild
-
       - name: Build
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: |
-          if [ "${{ matrix.zigbuild }}" = "true" ]; then
-            cargo zigbuild --release --target ${{ matrix.target }} -p agc --locked
-          elif [ "${{ matrix.cross }}" = "true" ]; then
+          if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} -p agc --locked
           else
             cargo build --release --target ${{ matrix.target }} -p agc --locked
