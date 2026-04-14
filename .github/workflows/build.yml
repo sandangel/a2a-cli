@@ -67,6 +67,8 @@ jobs:
         with:
           target: ${{ matrix.target }}
           rustflags: ""
+          cache-all-crates: true
+          cache-workspace-crates: true
 
       - name: Build
         env:
