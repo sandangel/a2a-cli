@@ -3,7 +3,7 @@
 use crate::cli::GlobalArgs;
 use crate::config::{Agent, load};
 use crate::error::{AgcError, Result};
-use crate::validate::{validate_agent_url, validate_alias};
+use crate::validate::validate_agent_ref;
 
 pub struct ResolvedAgent {
     pub alias: String,
@@ -17,21 +17,10 @@ pub fn resolve_target(args: &GlobalArgs) -> Result<ResolvedAgent> {
     let cfg = load()?;
 
     let name = if let Some(a) = args.agent.first() {
-        // Validate user-supplied --agent value before use.
-        if a.starts_with("http://") || a.starts_with("https://") {
-            validate_agent_url(a)?;
-        } else {
-            validate_alias(a)?;
-        }
-        a.clone()
+        validate_agent_ref(a)?
     } else if let Ok(env_val) = std::env::var("AGC_AGENT_URL") {
         if !env_val.is_empty() {
-            if env_val.starts_with("http://") || env_val.starts_with("https://") {
-                validate_agent_url(&env_val)?;
-            } else {
-                validate_alias(&env_val)?;
-            }
-            env_val
+            validate_agent_ref(&env_val)?
         } else {
             resolve_current_agent(&cfg)?
         }
@@ -67,23 +56,19 @@ pub fn resolve_explicit_targets(args: &GlobalArgs) -> Result<Vec<ResolvedAgent>>
     args.agent
         .iter()
         .map(|a| {
-            if a.starts_with("http://") || a.starts_with("https://") {
-                validate_agent_url(a)?;
-            } else {
-                validate_alias(a)?;
-            }
-            cfg.resolve_agent(a)
+            let name = validate_agent_ref(a)?;
+            cfg.resolve_agent(&name)
                 .map(|agent| {
                     let url = agent.url.clone();
                     ResolvedAgent {
-                        alias: a.clone(),
+                        alias: name.clone(),
                         url,
                         agent,
                     }
                 })
                 .ok_or_else(|| {
                     AgcError::Config(format!(
-                        "unknown agent {a:?} — register with: agc agent add {a} <url>"
+                        "unknown agent {name:?} — register with: agc agent add {name} <url>"
                     ))
                 })
         })

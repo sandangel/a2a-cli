@@ -120,6 +120,21 @@ pub fn validate_alias(alias: &str) -> Result<()> {
     validate_alias_str(alias)
 }
 
+/// Validate and normalise a raw `--agent` value (alias or URL).
+///
+/// This is the single entry point for all agent-ref validation — avoids
+/// duplicating the `starts_with("http")` branch at every call site.
+/// Returns the validated string unchanged so it can be forwarded to config
+/// lookup without an extra allocation.
+pub fn validate_agent_ref(s: &str) -> Result<String> {
+    if s.starts_with("http://") || s.starts_with("https://") {
+        AgentUrl::new(s)?;
+    } else {
+        AgentAlias::new(s)?;
+    }
+    Ok(s.to_string())
+}
+
 pub fn validate_message_text(text: &str) -> Result<()> {
     for c in text.chars() {
         if c == '\n' || c == '\t' {

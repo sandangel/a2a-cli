@@ -45,6 +45,20 @@ impl AgcError {
         }
     }
 
+    /// Wrap this error with additional context about what was happening.
+    /// The context is prepended to the error message: "{context}: {self}".
+    pub fn context(self, ctx: impl std::fmt::Display) -> Self {
+        match self {
+            AgcError::A2A(e) => AgcError::A2A(a2a::A2AError::internal(format!("{ctx}: {e}"))),
+            AgcError::Auth(msg) => AgcError::Auth(format!("{ctx}: {msg}")),
+            AgcError::Config(msg) => AgcError::Config(format!("{ctx}: {msg}")),
+            AgcError::InvalidInput(msg) => AgcError::InvalidInput(format!("{ctx}: {msg}")),
+            // For wrapped errors where we can't add context cleanly, convert to InvalidInput
+            // with the full chain so the user still sees both messages.
+            other => AgcError::InvalidInput(format!("{ctx}: {other}")),
+        }
+    }
+
     /// Whether retrying the same request might succeed.
     ///
     /// HTTP 5xx / connection errors are transient; 4xx, auth, config, and

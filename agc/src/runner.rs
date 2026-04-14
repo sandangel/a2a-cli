@@ -246,12 +246,13 @@ pub async fn run_streaming(
                 {
                     Ok(Some(Ok(e))) => on_event(serde_json::to_value(&e)?)?,
                     Ok(Some(Err(e))) => {
-                        return Err(AgcError::A2A(e));
+                        return Err(AgcError::A2A(e)
+                            .context("stream command failed while receiving events"));
                     }
                     Ok(None) => break,
                     Err(_) => {
                         return Err(AgcError::InvalidInput(
-                            "stream timed out waiting for next event (30 s)".to_string(),
+                            "stream command timed out waiting for next event (30 s)".to_string(),
                         ));
                     }
                 }
@@ -268,17 +269,22 @@ pub async fn run_streaming(
                     tenant: tenant.map(str::to_string),
                 })
                 .await
-                .map_err(AgcError::A2A)?;
+                .map_err(|e| AgcError::A2A(e).context(format!("subscribe to task {}", cmd.id)))?;
             loop {
                 match tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await
                 {
                     Ok(Some(Ok(e))) => on_event(serde_json::to_value(&e)?)?,
-                    Ok(Some(Err(e))) => return Err(AgcError::A2A(e)),
+                    Ok(Some(Err(e))) => {
+                        return Err(
+                            AgcError::A2A(e).context(format!("task {} subscribe failed", cmd.id))
+                        );
+                    }
                     Ok(None) => break,
                     Err(_) => {
-                        return Err(AgcError::InvalidInput(
-                            "stream timed out waiting for next event (30 s)".to_string(),
-                        ));
+                        return Err(AgcError::InvalidInput(format!(
+                            "subscribe to task {} timed out waiting for next event (30 s)",
+                            cmd.id
+                        )));
                     }
                 }
             }
