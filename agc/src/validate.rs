@@ -4,13 +4,18 @@
 //! Validated newtypes (`AgentAlias`, `AgentUrl`) encode the invariant in the
 //! type: once constructed, callers don't need to re-validate.
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::{AgcError, Result};
 pub use google_workspace::validate::is_dangerous_unicode;
 
 // ── Validated newtypes ────────────────────────────────────────────────
 
 /// A validated agent alias — not empty, no path separators, no control chars.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Serializes transparently as a plain string so YAML/JSON formats are unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct AgentAlias(String);
 
 impl AgentAlias {
@@ -33,6 +38,13 @@ impl std::fmt::Display for AgentAlias {
 
 impl AsRef<str> for AgentAlias {
     fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Allows `HashMap<AgentAlias, _>::get(some_str)` and `contains_key(some_str)`.
+impl std::borrow::Borrow<str> for AgentAlias {
+    fn borrow(&self) -> &str {
         &self.0
     }
 }

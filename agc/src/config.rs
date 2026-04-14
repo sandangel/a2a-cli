@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AgcError, Result};
 use crate::fs_util::atomic_write;
+use crate::validate::AgentAlias;
 
 const CONFIG_DIR: &str = "agc";
 const CONFIG_FILE: &str = "config.yaml";
@@ -15,11 +16,12 @@ const CONFIG_FILE: &str = "config.yaml";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub current_agent: String,
+    /// The active agent alias. `None` means no agent has been set via `agc agent use`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_agent: Option<AgentAlias>,
 
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub agents: HashMap<String, Agent>,
+    pub agents: HashMap<AgentAlias, Agent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +110,8 @@ pub fn save(cfg: &Config) -> Result<()> {
 
 impl Config {
     /// Resolve --agent value: alias lookup first, then raw URL.
+    /// Resolve `--agent` value: alias lookup first, then raw URL.
+    /// Accepts `&str` directly via `AgentAlias: Borrow<str>`.
     pub fn resolve_agent(&self, name_or_url: &str) -> Option<Agent> {
         if let Some(a) = self.agents.get(name_or_url) {
             return Some(a.clone());
@@ -123,30 +127,20 @@ impl Config {
         None
     }
 
-    /// Return the active agent `(alias, &Agent)`, or `None` if none is set.
-    ///
-    /// Returns `None` in two cases:
-    /// - `current_agent` is empty (no active agent configured)
-    /// - `current_agent` names an alias not present in `agents` (broken aggregate
-    ///   invariant — happens if an agent is removed without clearing the active alias)
+    /// Return the active agent `(alias_str, &Agent)`, or `None` if none is set.
     pub fn active_agent(&self) -> Option<(&str, &Agent)> {
-        if self.current_agent.is_empty() {
-            return None;
-        }
-        let agent = self.agents.get(&self.current_agent)?;
-        // Invariant: current_agent must name a registered alias.
-        // If it doesn't (stale reference after `agent remove`), treat as "no active
-        // agent" so the caller gets a clear Config error from resolve_current_agent().
-        Some((self.current_agent.as_str(), agent))
+        let alias = self.current_agent.as_ref()?;
+        let agent = self.agents.get(alias.as_str())?;
+        Some((alias.as_str(), agent))
     }
 
-    /// Assert the aggregate invariant: if `current_agent` is set it must exist in
-    /// `agents`.  Call this after any mutation that could break the invariant.
+    /// Assert the aggregate invariant: if `current_agent` is set it must exist in `agents`.
     pub(crate) fn check_invariants(&self) -> crate::error::Result<()> {
-        if !self.current_agent.is_empty() && !self.agents.contains_key(&self.current_agent) {
+        if let Some(alias) = &self.current_agent
+            && !self.agents.contains_key(alias.as_str())
+        {
             return Err(crate::error::AgcError::Config(format!(
-                "active agent {:?} is not registered — run: agc agent add {:?} <url>",
-                self.current_agent, self.current_agent,
+                "active agent {alias:?} is not registered — run: agc agent add {alias:?} <url>",
             )));
         }
         Ok(())
@@ -171,8 +165,10 @@ mod tests {
     #[test]
     fn resolve_agent_by_known_alias() {
         let mut cfg = Config::default();
-        cfg.agents
-            .insert("prod".to_string(), make_agent("https://prod.example.com"));
+        cfg.agents.insert(
+            AgentAlias::new("prod").unwrap(),
+            make_agent("https://prod.example.com"),
+        );
         let a = cfg.resolve_agent("prod").unwrap();
         assert_eq!(a.url, "https://prod.example.com");
     }
@@ -202,16 +198,17 @@ mod tests {
     #[test]
     fn active_agent_returns_current() {
         let mut cfg = Config::default();
-        cfg.current_agent = "prod".to_string();
+        let alias = AgentAlias::new("prod").unwrap();
+        cfg.current_agent = Some(alias.clone());
         cfg.agents
-            .insert("prod".to_string(), make_agent("https://prod.example.com"));
-        let (alias, agent) = cfg.active_agent().unwrap();
-        assert_eq!(alias, "prod");
+            .insert(alias, make_agent("https://prod.example.com"));
+        let (a, agent) = cfg.active_agent().unwrap();
+        assert_eq!(a, "prod");
         assert_eq!(agent.url, "https://prod.example.com");
     }
 
     #[test]
-    fn active_agent_empty_current_returns_none() {
+    fn active_agent_none_current_returns_none() {
         let cfg = Config::default();
         assert!(cfg.active_agent().is_none());
     }
@@ -219,7 +216,7 @@ mod tests {
     #[test]
     fn active_agent_alias_missing_from_map_returns_none() {
         let mut cfg = Config::default();
-        cfg.current_agent = "ghost".to_string();
+        cfg.current_agent = Some(AgentAlias::new("ghost").unwrap());
         assert!(cfg.active_agent().is_none());
     }
 
@@ -244,12 +241,13 @@ mod tests {
 
     #[test]
     fn config_yaml_roundtrip() {
+        let test_alias = AgentAlias::new("test").unwrap();
         let mut cfg = Config {
-            current_agent: "test".to_string(),
+            current_agent: Some(test_alias.clone()),
             agents: HashMap::new(),
         };
         cfg.agents.insert(
-            "test".to_string(),
+            test_alias,
             Agent {
                 url: "https://example.com".to_string(),
                 description: "Test agent".to_string(),
@@ -264,7 +262,7 @@ mod tests {
         let yaml = serde_yaml::to_string(&cfg).unwrap();
         let back: Config = serde_yaml::from_str(&yaml).unwrap();
 
-        assert_eq!(back.current_agent, "test");
+        assert_eq!(back.current_agent.as_ref().unwrap().as_str(), "test");
         let agent = back.agents.get("test").unwrap();
         assert_eq!(agent.url, "https://example.com");
         assert_eq!(agent.transport, "jsonrpc");
@@ -286,8 +284,10 @@ mod tests {
 fn default_config() -> Config {
     let host = env!("AGC_DEFAULT_HOST");
     let mut agents = HashMap::new();
+    // SAFETY: "rover" is a valid alias — static string, no path separators.
+    let rover = AgentAlias::new("rover").expect("rover is a valid alias");
     agents.insert(
-        "rover".to_string(),
+        rover.clone(),
         Agent {
             url: format!("https://{host}/a2a/rover-agent"),
             description: "Rover Agent".to_string(),
@@ -299,7 +299,7 @@ fn default_config() -> Config {
         },
     );
     Config {
-        current_agent: "rover".to_string(),
+        current_agent: Some(rover),
         agents,
     }
 }

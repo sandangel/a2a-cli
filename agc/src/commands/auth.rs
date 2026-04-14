@@ -68,7 +68,7 @@ pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
                 let mut statuses = vec![];
                 for (alias, agent) in &cfg.agents {
                     let s = token_status(&agent.url)?;
-                    statuses.push(status_json(alias, &agent.url, &s));
+                    statuses.push(status_json(alias.as_str(), &agent.url, &s));
                 }
                 print_value(
                     &serde_json::Value::Array(statuses),

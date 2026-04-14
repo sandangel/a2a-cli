@@ -8,7 +8,7 @@ use crate::config::{Agent, OAuthConfig, load, save};
 use crate::error::{AgcError, Result};
 use crate::printer::print_value;
 use crate::runner::fetch_card;
-use crate::validate::{validate_agent_url, validate_alias};
+use crate::validate::{AgentAlias, validate_agent_url};
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
@@ -77,12 +77,12 @@ pub struct UpdateArgs {
 pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
     match cmd {
         AgentCommand::Add(a) => {
-            validate_alias(&a.alias)?;
+            let alias_key = AgentAlias::new(&a.alias)?;
             validate_agent_url(&a.url)?;
             let mut cfg = load()?;
             let is_first = cfg.agents.is_empty();
             cfg.agents.insert(
-                a.alias.clone(),
+                alias_key.clone(),
                 Agent {
                     url: a.url.clone(),
                     description: a.description.clone().unwrap_or_default(),
@@ -97,25 +97,25 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                     },
                 },
             );
-            if is_first || cfg.current_agent.is_empty() {
-                cfg.current_agent = a.alias.clone();
+            if is_first || cfg.current_agent.is_none() {
+                cfg.current_agent = Some(alias_key);
                 eprintln!("Set {:?} as the active agent.", a.alias);
             }
             save(&cfg)?;
             eprintln!("Agent {:?} → {}", a.alias, a.url);
         }
         AgentCommand::Use(a) => {
-            validate_alias(&a.alias)?;
+            let alias_key = AgentAlias::new(&a.alias)?;
             let mut cfg = load()?;
-            if !cfg.agents.contains_key(&a.alias) {
+            if !cfg.agents.contains_key(alias_key.as_str()) {
                 return Err(AgcError::Config(format!(
                     "unknown alias {:?} — register with: agc agent add {} <url>",
                     a.alias, a.alias
                 )));
             }
-            cfg.current_agent = a.alias.clone();
+            let url = cfg.agents[alias_key.as_str()].url.clone();
+            cfg.current_agent = Some(alias_key);
             save(&cfg)?;
-            let url = &cfg.agents[&a.alias].url;
             eprintln!("Active agent: {:?} ({})", a.alias, url);
         }
         AgentCommand::List => {
@@ -124,6 +124,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                 eprintln!("No agents registered. Use: agc agent add <alias> <url>");
                 return Ok(());
             }
+            let active = cfg.current_agent.as_ref().map(|a| a.as_str()).unwrap_or("");
             let entries: Vec<_> = cfg
                 .agents
                 .iter()
@@ -131,7 +132,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                     serde_json::json!({
                         "alias": alias,
                         "url": a.url,
-                        "active": alias == &cfg.current_agent,
+                        "active": alias.as_str() == active,
                         "transport": a.transport,
                         "description": a.description,
                         "client_id": a.oauth_or_default().client_id,
@@ -147,12 +148,12 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
         }
         AgentCommand::Remove(a) => {
             let mut cfg = load()?;
-            if !cfg.agents.contains_key(&a.alias) {
+            if !cfg.agents.contains_key(a.alias.as_str()) {
                 return Err(AgcError::Config(format!("unknown alias {:?}", a.alias)));
             }
-            cfg.agents.remove(&a.alias);
-            if cfg.current_agent == a.alias {
-                cfg.current_agent.clear();
+            cfg.agents.remove(a.alias.as_str());
+            if cfg.current_agent.as_ref().map(|x| x.as_str()) == Some(a.alias.as_str()) {
+                cfg.current_agent = None;
                 eprintln!(
                     "Removed active agent {:?} — run 'agc agent use <alias>' to set a new one.",
                     a.alias
@@ -164,7 +165,8 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
         }
         AgentCommand::Show(a) => {
             let cfg = load()?;
-            let alias = a.alias.as_deref().unwrap_or(&cfg.current_agent);
+            let current = cfg.current_agent.as_ref().map(|x| x.as_str()).unwrap_or("");
+            let alias = a.alias.as_deref().unwrap_or(current);
             if alias.is_empty() {
                 return Err(AgcError::Config(
                     "no active agent — run: agc agent use <alias>".to_string(),
@@ -172,13 +174,13 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             }
             let agent = cfg
                 .agents
-                .get(alias)
+                .get(alias as &str)
                 .ok_or_else(|| AgcError::Config(format!("unknown alias {alias:?}")))?;
             print_value(
                 &serde_json::json!({
                     "alias": alias,
                     "url": agent.url,
-                    "active": alias == cfg.current_agent,
+                    "active": cfg.current_agent.as_ref().map(|x| x.as_str()) == Some(alias),
                     "transport": agent.transport,
                     "description": agent.description,
                     "oauth": { "client_id": agent.oauth_or_default().client_id, "scopes": agent.oauth_or_default().scopes },
@@ -191,7 +193,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
         AgentCommand::GenerateSkills(a) => {
             let cfg = load()?;
             let aliases: Vec<String> = if a.aliases.is_empty() {
-                cfg.agents.keys().cloned().collect()
+                cfg.agents.keys().map(|k| k.as_str().to_string()).collect()
             } else {
                 a.aliases.clone()
             };
@@ -202,7 +204,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             for alias in &aliases {
                 let agent = cfg
                     .agents
-                    .get(alias)
+                    .get(alias as &str)
                     .ok_or_else(|| AgcError::Config(format!("unknown alias {alias:?}")))?;
                 eprint!("fetching card for {alias}... ");
                 match fetch_card(&agent.url, None).await {
@@ -219,7 +221,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             let mut cfg = load()?;
             let agent = cfg
                 .agents
-                .get_mut(&a.alias)
+                .get_mut(a.alias.as_str())
                 .ok_or_else(|| AgcError::Config(format!("unknown alias {:?}", a.alias)))?;
             if let Some(url) = &a.url {
                 validate_agent_url(url)?;

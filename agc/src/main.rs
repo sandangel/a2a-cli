@@ -12,7 +12,7 @@ use agc::commands::{
     schema::run_schema,
 };
 use agc::printer::{print_agent_json, print_json, print_value};
-use agc::runner::{is_streaming, run_streaming, run_to_value, run_to_value_with_retry};
+use agc::runner::{is_streaming, run_streaming, run_to_value_with_retry};
 use agc::validate::validate_message_text;
 
 /// Resolve the bearer token: explicit flag takes priority, then stored token
@@ -64,6 +64,12 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
         } else {
             resolve_explicit_targets(args)?
         };
+        // In-process circuit breaker: tracks agent URLs that have tripped (permanent
+        // failure after all retries).  If the same URL appears twice in the targets
+        // list, the second call short-circuits immediately instead of burning retries.
+        let tripped: Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
+            Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+
         let futs: FuturesUnordered<_> = targets
             .into_iter()
             .map(|t| {
@@ -72,11 +78,31 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
                 let binding = args.transport;
                 let tenant = args.tenant.clone();
                 let cmd = Arc::clone(&command);
+                let tripped = Arc::clone(&tripped);
                 tokio::spawn(async move {
+                    // Short-circuit if this URL already tripped in a parallel branch.
+                    if tripped.lock().unwrap().contains(&t.url) {
+                        return Err(agc::error::AgcError::Config(format!(
+                            "circuit open for {} — previous call failed permanently",
+                            t.url
+                        )));
+                    }
                     let bearer = resolve_bearer(explicit_bearer, &t.url, &client_id).await;
-                    run_to_value(&cmd, &t.url, bearer.as_deref(), binding, tenant.as_deref())
-                        .await
-                        .map(|v| (t.alias, t.url, v))
+                    let result = run_to_value_with_retry(
+                        &cmd,
+                        &t.url,
+                        bearer.as_deref(),
+                        binding,
+                        tenant.as_deref(),
+                    )
+                    .await;
+                    // Trip the circuit on permanent failure so duplicates skip immediately.
+                    if let Err(ref e) = result
+                        && !e.is_retryable()
+                    {
+                        tripped.lock().unwrap().insert(t.url.clone());
+                    }
+                    result.map(|v| (t.alias, t.url, v))
                 })
             })
             .collect();

@@ -41,13 +41,15 @@ pub fn resolve_target(args: &GlobalArgs) -> Result<ResolvedAgent> {
 }
 
 fn resolve_current_agent(cfg: &crate::config::Config) -> Result<String> {
-    if cfg.current_agent.is_empty() {
-        return Err(AgcError::Config(
-            "no agent specified — use --agent <alias|url> or run: agc agent use <alias>"
-                .to_string(),
-        ));
-    }
-    Ok(cfg.current_agent.clone())
+    cfg.current_agent
+        .as_ref()
+        .map(|a| a.as_str().to_string())
+        .ok_or_else(|| {
+            AgcError::Config(
+                "no agent specified — use --agent <alias|url> or run: agc agent use <alias>"
+                    .to_string(),
+            )
+        })
 }
 
 /// Resolve explicit --agent targets (for `--agent a --agent b` parallel dispatch).
@@ -88,7 +90,11 @@ pub fn resolve_all_targets() -> Result<Vec<ResolvedAgent>> {
         .into_iter()
         .map(|(alias, agent)| {
             let url = agent.url.clone();
-            ResolvedAgent { alias, url, agent }
+            ResolvedAgent {
+                alias: alias.as_str().to_string(),
+                url,
+                agent,
+            }
         })
         .collect())
 }
