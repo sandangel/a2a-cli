@@ -42,22 +42,18 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
-            cross: true
           - target: aarch64-unknown-linux-musl
             runner: ubuntu-latest
             archive: tar.gz
-            cross: true
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
             archive: tar.gz
-            cross: true
           - target: x86_64-pc-windows-gnu
             runner: ubuntu-latest
             archive: zip
-            cross: true
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -72,19 +68,10 @@ jobs:
           target: ${{ matrix.target }}
           rustflags: ""
 
-      - name: Install cross
-        if: matrix.cross == true
-        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
-
       - name: Build
         env:
           BUILD_ENV: ${{ inputs.build_env }}
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p agc --locked
-          else
-            cargo build --release --target ${{ matrix.target }} -p agc --locked
-          fi
+        run: cargo build --release --target ${{ matrix.target }} -p agc --locked
         shell: bash
 
       - name: Package (unix)
