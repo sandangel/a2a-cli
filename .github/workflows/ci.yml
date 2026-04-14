@@ -60,6 +60,8 @@ jobs:
     # Only publish on main pushes, not PRs.
     if: github.event_name == 'push'
     needs: [version, build]
+    permissions:
+      id-token: write
     uses: ./.github/workflows/publish-npm.yml
     with:
       version: ${{ needs.version.outputs.value }}
