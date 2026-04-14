@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: 'npm package version (e.g. 0.1.0, 0.1.0-rc.1, 0.1.0-dev.abc1234)'
+        description: npm package version (e.g. 0.1.0, 0.1.0-rc.1, 0.1.0-dev.abc1234)
         required: true
         type: string
       npm_tag:
-        description: 'npm dist-tag (latest | next | dev)'
+        description: npm dist-tag (latest | next | dev)
         required: true
         type: string
 
@@ -21,19 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: 'lts/*'
-
       - name: Authenticate to Artifactory
         id: auth
         uses: sg-innersource/artifactory-oidc-access@v2.0.12
 
-      - name: Configure npm registry
-        run: |
-          REGISTRY="https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
-          npm config set @rover:registry "${REGISTRY}"
-          echo "//${REGISTRY#https:}:_authToken=${{ steps.auth.outputs.artifactory-token }}" >> ~/.npmrc
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: lts/*
+          registry-url: https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
 
       - uses: actions/download-artifact@v4
         with:
