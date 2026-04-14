@@ -51,10 +51,14 @@ jobs:
           echo "value=${CARGO_VERSION}-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
   build:
+    permissions:
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/build.yml
     with:
       build_env: dev
       upload_artifacts: ${{ github.event_name == 'push' }}
+      attest: ${{ github.event_name == 'push' }}
 
   publish-npm:
     # Only publish on main pushes, not PRs.
