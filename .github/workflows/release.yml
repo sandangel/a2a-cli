@@ -143,6 +143,7 @@ jobs:
       build_env: ${{ needs.plan.outputs.build_env }}
       ref: ${{ needs.plan.outputs.tag }}
       upload_artifacts: true
+      attest: true
 
   # ── release ─────────────────────────────────────────────────────────────────
   release:

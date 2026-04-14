@@ -17,6 +17,11 @@ on:
         required: false
         type: boolean
         default: false
+      attest:
+        description: 'Create build provenance attestation (requires id-token: write + attestations: write)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -103,7 +108,7 @@ jobs:
         shell: bash
 
       - name: Attest
-        if: inputs.upload_artifacts
+        if: inputs.attest
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: agc-${{ matrix.target }}.${{ matrix.archive }}
