@@ -84,6 +84,14 @@ axum         = { workspace = true }
 a2a-server   = { package = "agntcy-a2a-server", path = "../a2a-rs/a2a-server" }
 async-trait  = "0.1"
 
+# ── Platform-specific OpenSSL (for cross-compilation) ────────────────
+# agntcy-a2a-client (a2a-rs, read-only) declares reqwest without
+# default-features = false, so reqwest's native-tls (openssl) is pulled in
+# via feature unification. Vendoring ensures cross-compiled Linux targets
+# can build without system OpenSSL headers.
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 # ── Platform-specific keyring backends ───────────────────────────────
 # Without explicit features, keyring v3 uses an in-process mock (no persistence).
 # Go's go-keyring has D-Bus built in; we must opt in explicitly here.
