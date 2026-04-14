@@ -152,9 +152,10 @@ jobs:
             runner: ubuntu-latest
             archive: tar.gz
             cross: true
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
+          - target: x86_64-pc-windows-gnu
+            runner: ubuntu-latest
             archive: zip
+            cross: true
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -199,13 +200,13 @@ jobs:
       - name: Package (windows)
         if: matrix.archive == 'zip'
         run: |
-          $ARTIFACT = "agc-${{ matrix.target }}"
-          New-Item -ItemType Directory -Path $ARTIFACT
-          Copy-Item "target/${{ matrix.target }}/release/agc.exe" "$ARTIFACT/"
-          Copy-Item LICENSE, README.md "$ARTIFACT/"
-          Compress-Archive -Path "$ARTIFACT/*" -DestinationPath "$ARTIFACT.zip"
-          (Get-FileHash "$ARTIFACT.zip" -Algorithm SHA256).Hash.ToLower() + "  $ARTIFACT.zip" | Out-File -Encoding ascii "$ARTIFACT.zip.sha256"
-        shell: pwsh
+          ARTIFACT="agc-${{ matrix.target }}"
+          mkdir -p "${ARTIFACT}"
+          cp "target/${{ matrix.target }}/release/agc.exe" "${ARTIFACT}/"
+          cp LICENSE README.md "${ARTIFACT}/"
+          zip -r "${ARTIFACT}.zip" "${ARTIFACT}/"
+          shasum -a 256 "${ARTIFACT}.zip" > "${ARTIFACT}.zip.sha256"
+        shell: bash
 
       - name: Attest
         uses: actions/attest-build-provenance@v2
@@ -319,7 +320,7 @@ jobs:
           chmod +x npm/packages/@rover/agent-cli-linux-x64/bin/agc
 
           mkdir -p npm/packages/@rover/agent-cli-win32-x64/bin
-          unzip -j artifacts/agc-x86_64-pc-windows-msvc.zip "*/agc.exe" -d npm/packages/@rover/agent-cli-win32-x64/bin/
+          unzip -j artifacts/agc-x86_64-pc-windows-gnu.zip "*/agc.exe" -d npm/packages/@rover/agent-cli-win32-x64/bin/
 
       - name: Set version in all packages
         run: |
