@@ -263,7 +263,7 @@ fn write_skill(path: &str, content: &str) -> Result<()> {
 
 fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     let mut s = String::new();
-    let version = env!("CARGO_PKG_VERSION");
+    let version = env!("AGC_BUILD_VERSION");
     let agent_name = card.name.trim();
     let agent_version = card.version.trim();
     let description = card.description.trim();

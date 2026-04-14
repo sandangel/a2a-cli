@@ -30,7 +30,7 @@ fn write_skill(path: &str, content: &str) -> Result<()> {
 // ── Skill content ─────────────────────────────────────────────────────
 
 fn agc_skill() -> String {
-    let version = env!("CARGO_PKG_VERSION");
+    let version = env!("AGC_BUILD_VERSION");
     let send_fields_artifacts = examples::SEND_FIELDS_ARTIFACTS;
     let send_fields_state_and_artifacts = examples::SEND_FIELDS_STATE_AND_ARTIFACTS;
     format!(

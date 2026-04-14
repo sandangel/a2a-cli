@@ -41,6 +41,7 @@ jobs:
       version:    ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       prev_tag:   ${{ steps.meta.outputs.prev_tag }}
+      build_env:  ${{ steps.meta.outputs.build_env }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -122,98 +123,23 @@ jobs:
           fi
 
           echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" == *-rc.* ]]; then
+            echo "build_env=stg" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_env=prod" >> "$GITHUB_OUTPUT"
+          fi
+
           echo "resolved: tag=${TAG}, prev_tag=${PREV}"
 
   # ── build ───────────────────────────────────────────────────────────────────
   build:
     needs: plan
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-latest
-            archive: tar.gz
-          - target: x86_64-apple-darwin
-            runner: macos-latest
-            archive: tar.gz
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
-            archive: tar.gz
-            cross: true
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-latest
-            archive: tar.gz
-            cross: true
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
-            archive: tar.gz
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-latest
-            archive: tar.gz
-            cross: true
-          - target: x86_64-pc-windows-gnu
-            runner: ubuntu-latest
-            archive: zip
-            cross: true
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.tag }}   # build from tagged commit
-          submodules: recursive
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: ${{ matrix.target }}
-          rustflags: ""
-
-      - name: Install cross
-        if: matrix.cross == true
-        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
-
-      - name: Build
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p agc --locked
-          else
-            cargo build --release --target ${{ matrix.target }} -p agc --locked
-          fi
-        shell: bash
-
-      - name: Package (unix)
-        if: matrix.archive == 'tar.gz'
-        run: |
-          ARTIFACT="agc-${{ matrix.target }}"
-          mkdir -p staging
-          cp "target/${{ matrix.target }}/release/agc" staging/
-          cp LICENSE README.md staging/
-          tar czf "${ARTIFACT}.tar.gz" -C staging .
-          shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
-        shell: bash
-
-      - name: Package (windows)
-        if: matrix.archive == 'zip'
-        run: |
-          ARTIFACT="agc-${{ matrix.target }}"
-          mkdir -p "${ARTIFACT}"
-          cp "target/${{ matrix.target }}/release/agc.exe" "${ARTIFACT}/"
-          cp LICENSE README.md "${ARTIFACT}/"
-          zip -r "${ARTIFACT}.zip" "${ARTIFACT}/"
-          shasum -a 256 "${ARTIFACT}.zip" > "${ARTIFACT}.zip.sha256"
-        shell: bash
-
-      - name: Attest
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: agc-${{ matrix.target }}.${{ matrix.archive }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.target }}
-          path: |
-            agc-${{ matrix.target }}.${{ matrix.archive }}
-            agc-${{ matrix.target }}.${{ matrix.archive }}.sha256
+    uses: ./.github/workflows/build.yml
+    with:
+      build_env: ${{ needs.plan.outputs.build_env }}
+      ref: ${{ needs.plan.outputs.tag }}
+      upload_artifacts: true
 
   # ── release ─────────────────────────────────────────────────────────────────
   release:

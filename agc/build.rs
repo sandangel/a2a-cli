@@ -11,14 +11,27 @@ use prost_reflect::{Cardinality, DescriptorPool, FieldDescriptor, Kind, MessageD
 use serde_json::{Map, Value, json};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // BUILD_ENV → compile-time default host
-    let host = match std::env::var("BUILD_ENV").as_deref() {
-        Ok("dev") => "dev.genai.stargate.toyota",
-        Ok("stg") => "stg.genai.stargate.toyota",
+    // BUILD_ENV → compile-time default host + version tag
+    let build_env = std::env::var("BUILD_ENV").unwrap_or_default();
+    let host = match build_env.as_str() {
+        "dev" => "dev.genai.stargate.toyota",
+        "stg" => "stg.genai.stargate.toyota",
         _ => "genai.stargate.toyota",
     };
     println!("cargo:rustc-env=AGC_DEFAULT_HOST={host}");
+
+    let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+    let build_version = if build_env == "dev" {
+        let sha = std::env::var("GITHUB_SHA")
+            .map(|s| s[..7].to_string())
+            .unwrap_or_else(|_| "local".to_string());
+        format!("{pkg_version}-dev.{sha}")
+    } else {
+        pkg_version
+    };
+    println!("cargo:rustc-env=AGC_BUILD_VERSION={build_version}");
     println!("cargo:rerun-if-env-changed=BUILD_ENV");
+    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
 
     // Proto → JSON Schema
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
