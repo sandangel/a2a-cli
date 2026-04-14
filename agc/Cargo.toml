@@ -3,7 +3,7 @@ name = "agc"
 version = "0.1.0"
 description = "Agent CLI — interact with A2A protocol agents"
 edition = "2024"
-license = "Apache-2.0"
+license = "LicenseRef-Proprietary"
 
 [[bin]]
 name = "agc"

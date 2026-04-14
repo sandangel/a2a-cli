@@ -2,7 +2,7 @@
   "name": "@rover/agent-cli",
   "description": "A2A CLI — interact with A2A protocol agents from the terminal",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/sg-genai/genai-cli.git"

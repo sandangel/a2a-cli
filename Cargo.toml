@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-license = "Apache-2.0"
+license = "LicenseRef-Proprietary"
 rust-version = "1.85"
 repository = "https://github.com/a2aproject/a2a-rs"
 
