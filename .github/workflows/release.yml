@@ -42,7 +42,7 @@ jobs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
       prev_tag:   ${{ steps.meta.outputs.prev_tag }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
@@ -132,33 +132,28 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-latest
             archive: tar.gz
+            zigbuild: true
           - target: x86_64-apple-darwin
-            runner: macos-latest
             archive: tar.gz
+            zigbuild: true
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
             archive: tar.gz
             cross: true
           - target: aarch64-unknown-linux-musl
-            runner: ubuntu-latest
             archive: tar.gz
             cross: true
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-latest
             archive: tar.gz
           - target: x86_64-unknown-linux-musl
-            runner: ubuntu-latest
             archive: tar.gz
             cross: true
           - target: x86_64-pc-windows-gnu
-            runner: ubuntu-latest
             archive: zip
             cross: true
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.plan.outputs.tag }}   # build from tagged commit
           submodules: false
@@ -177,9 +172,19 @@ jobs:
         if: matrix.cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
 
-      - name: Build
+      - name: Install cargo-zigbuild
+        if: matrix.zigbuild == true
         run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
+          pip3 install ziglang
+          cargo install cargo-zigbuild
+
+      - name: Build
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          if [ "${{ matrix.zigbuild }}" = "true" ]; then
+            cargo zigbuild --release --target ${{ matrix.target }} -p agc --locked
+          elif [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} -p agc --locked
           else
             cargo build --release --target ${{ matrix.target }} -p agc --locked
@@ -225,7 +230,7 @@ jobs:
     needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.plan.outputs.tag }}
           fetch-depth: 0
@@ -276,7 +281,7 @@ jobs:
     needs: [plan, release]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - uses: actions/setup-node@v4
         with:
