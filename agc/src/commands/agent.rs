@@ -103,6 +103,19 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             }
             save(&cfg)?;
             eprintln!("Agent {:?} → {}", a.alias, a.url);
+
+            // Auto-generate skill from agent card (best-effort — don't fail if unreachable)
+            eprint!("fetching card for {} to generate skill... ", a.alias);
+            match fetch_card(&a.url, None).await {
+                Ok(card) => {
+                    let path = format!("skills/{}/SKILL.md", a.alias);
+                    match write_skill(&path, &agent_skill(&a.alias, &a.url, &card)) {
+                        Ok(()) => eprintln!("wrote {path}"),
+                        Err(e) => eprintln!("skill write failed ({e})"),
+                    }
+                }
+                Err(e) => eprintln!("skipped ({e})"),
+            }
         }
         AgentCommand::Use(a) => {
             let alias_key = AgentAlias::new(&a.alias)?;
