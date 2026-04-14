@@ -295,7 +295,7 @@ jobs:
         run: |
           REGISTRY="https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
           npm config set @rover:registry "${REGISTRY}"
-          npm config set "${REGISTRY}:_authToken" "${{ steps.auth.outputs.artifactory-token }}"
+          echo "//${REGISTRY#https:}:_authToken=${{ steps.auth.outputs.artifactory-token }}" >> ~/.npmrc
 
       - uses: actions/download-artifact@v4
         with:
