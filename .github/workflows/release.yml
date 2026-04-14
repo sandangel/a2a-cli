@@ -274,7 +274,6 @@ jobs:
   # ── publish-npm ─────────────────────────────────────────────────────────────
   publish-npm:
     needs: [plan, release]
-    if: needs.plan.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
