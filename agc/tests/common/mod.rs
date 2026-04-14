@@ -1,4 +1,5 @@
 pub mod mock_server;
+#[allow(unused_imports)]
 pub use mock_server::{MOCK_CFG_ID, MOCK_CTX_ID, MOCK_TASK_ID, MockServer, MockVariant};
 
 use a2acli::MessageCommand;
@@ -7,6 +8,7 @@ use agc::runner::run_to_value;
 use serde_json::Value;
 
 /// Run a `send` command against `base_url` and return the raw JSON value.
+#[allow(dead_code)]
 pub async fn run_send(text: &str, base_url: &str) -> Value {
     let cmd = Command::Send(MessageCommand {
         text: text.to_string(),
@@ -22,6 +24,7 @@ pub async fn run_send(text: &str, base_url: &str) -> Value {
 }
 
 /// Run a `send` command with an explicit context_id and return the raw JSON value.
+#[allow(dead_code)]
 pub async fn run_send_with_ctx(text: &str, base_url: &str, context_id: &str) -> Value {
     let cmd = Command::Send(MessageCommand {
         text: text.to_string(),

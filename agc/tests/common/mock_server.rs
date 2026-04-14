@@ -12,8 +12,8 @@ use a2a::{
     GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
     ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
     ListTasksRequest, ListTasksResponse, Message, Part, Role, SendMessageRequest,
-    SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task, TaskId,
-    TaskPushNotificationConfig, TaskState, TaskStatus, TaskStatusUpdateEvent,
+    SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task, TaskPushNotificationConfig,
+    TaskState, TaskStatus, TaskStatusUpdateEvent,
 };
 use a2a_client::BoxStream;
 use a2a_server::{RequestHandler, ServiceParams};
@@ -31,6 +31,7 @@ use tokio::sync::oneshot;
 // ── Variant selector ──────────────────────────────────────────────────
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum MockVariant {
     V1,
     V03JsonRpc,
