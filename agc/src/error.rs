@@ -53,8 +53,10 @@ impl AgcError {
             AgcError::Auth(msg) => AgcError::Auth(format!("{ctx}: {msg}")),
             AgcError::Config(msg) => AgcError::Config(format!("{ctx}: {msg}")),
             AgcError::InvalidInput(msg) => AgcError::InvalidInput(format!("{ctx}: {msg}")),
-            // For wrapped errors where we can't add context cleanly, convert to InvalidInput
-            // with the full chain so the user still sees both messages.
+            // NOTE: Http, V03, Io, Json variants don't carry a mutable String payload,
+            // so we convert to InvalidInput (exit code 3) to attach context.
+            // This changes the exit code from the variant's natural code (1 or 5).
+            // If you need to preserve the exit code, add an explicit arm above.
             other => AgcError::InvalidInput(format!("{ctx}: {other}")),
         }
     }
@@ -63,6 +65,8 @@ impl AgcError {
     ///
     /// HTTP 5xx / connection errors are transient; 4xx, auth, config, and
     /// invalid-input errors are permanent — retrying won't help.
+    /// For A2A errors, only INTERNAL_ERROR (-32603) is transient; domain errors
+    /// like TASK_NOT_FOUND or INVALID_PARAMS are permanent.
     pub fn is_retryable(&self) -> bool {
         match self {
             AgcError::Http(e) => {
@@ -70,7 +74,13 @@ impl AgcError {
                 // HTTP 5xx responses are retryable; 4xx are permanent.
                 e.is_timeout() || e.is_connect() || e.status().is_some_and(|s| s.is_server_error())
             }
-            AgcError::A2A(_) | AgcError::V03(_) => true,
+            // Only server-side internal errors are transient; all domain/client errors are permanent.
+            AgcError::A2A(e) => e.code == a2a::error_code::INTERNAL_ERROR,
+            // V03: HTTP transport errors inherit the same rule; RPC/IO/parse errors are permanent.
+            AgcError::V03(a2a_compat::V03Error::Http(e)) => {
+                e.is_timeout() || e.is_connect() || e.status().is_some_and(|s| s.is_server_error())
+            }
+            AgcError::V03(_) => false,
             AgcError::Auth(_)
             | AgcError::AuthExpired
             | AgcError::Config(_)
@@ -142,8 +152,22 @@ mod tests {
     }
 
     #[test]
-    fn is_retryable_a2a_is_true() {
+    fn is_retryable_a2a_internal_error_is_true() {
         assert!(AgcError::A2A(a2a::A2AError::internal("server error")).is_retryable());
+    }
+
+    #[test]
+    fn is_retryable_a2a_domain_error_is_false() {
+        assert!(!AgcError::A2A(a2a::A2AError::task_not_found("t1")).is_retryable());
+        assert!(!AgcError::A2A(a2a::A2AError::invalid_params("bad")).is_retryable());
+        assert!(!AgcError::A2A(a2a::A2AError::task_not_cancelable("t1")).is_retryable());
+    }
+
+    #[test]
+    fn is_retryable_v03_rpc_error_is_false() {
+        assert!(
+            !AgcError::V03(a2a_compat::V03Error::Rpc("method not found".into())).is_retryable()
+        );
     }
 
     #[test]

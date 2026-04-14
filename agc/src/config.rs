@@ -109,7 +109,6 @@ pub fn save(cfg: &Config) -> Result<()> {
 // ── Helpers on Config ─────────────────────────────────────────────────
 
 impl Config {
-    /// Resolve --agent value: alias lookup first, then raw URL.
     /// Resolve `--agent` value: alias lookup first, then raw URL.
     /// Accepts `&str` directly via `AgentAlias: Borrow<str>`.
     pub fn resolve_agent(&self, name_or_url: &str) -> Option<Agent> {

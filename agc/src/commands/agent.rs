@@ -8,7 +8,7 @@ use crate::config::{Agent, OAuthConfig, load, save};
 use crate::error::{AgcError, Result};
 use crate::printer::print_value;
 use crate::runner::fetch_card;
-use crate::validate::{AgentAlias, validate_agent_url};
+use crate::validate::{AgentAlias, validate_agent_url, validate_alias};
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
@@ -147,6 +147,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             )?;
         }
         AgentCommand::Remove(a) => {
+            validate_alias(&a.alias)?;
             let mut cfg = load()?;
             if !cfg.agents.contains_key(a.alias.as_str()) {
                 return Err(AgcError::Config(format!("unknown alias {:?}", a.alias)));
@@ -218,6 +219,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             }
         }
         AgentCommand::Update(a) => {
+            validate_alias(&a.alias)?;
             let mut cfg = load()?;
             let agent = cfg
                 .agents

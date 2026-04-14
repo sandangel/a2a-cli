@@ -464,7 +464,7 @@ async fn wait_for_callback(listener: tokio::net::TcpListener) -> Result<(String,
         body.len(),
         body
     );
-    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.write_all(response.as_bytes()).await; // best-effort: auth code already captured, browser UX only
 
     Ok((code, state))
 }
@@ -620,6 +620,8 @@ pub(crate) mod test_utils {
     impl EnvGuard {
         pub fn set(name: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let original = std::env::var_os(name);
+            // SAFETY: tests using EnvGuard are annotated #[serial_test::serial],
+            // which ensures no concurrent env mutations within this test suite.
             unsafe { std::env::set_var(name, value) };
             Self { name, original }
         }
@@ -627,6 +629,7 @@ pub(crate) mod test_utils {
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             match &self.original {
+                // SAFETY: see EnvGuard::set — serial test execution prevents races.
                 Some(v) => unsafe { std::env::set_var(self.name, v) },
                 None => unsafe { std::env::remove_var(self.name) },
             }

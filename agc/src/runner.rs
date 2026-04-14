@@ -257,7 +257,7 @@ pub async fn run_streaming(
                     }
                 }
             }
-            let _ = client.destroy().await;
+            let _ = client.destroy().await; // cleanup failure does not affect command result
         }
         Command::Task {
             command: TaskCommand::Subscribe(cmd),
@@ -288,7 +288,7 @@ pub async fn run_streaming(
                     }
                 }
             }
-            let _ = client.destroy().await;
+            let _ = client.destroy().await; // cleanup failure does not affect command result
         }
         _ => {
             return Err(AgcError::InvalidInput(

@@ -11,22 +11,6 @@
       "sourceType": "github",
       "computedHash": "88a6efe282b5105161c8ddb320f09ca0ffed19323fe403dfa7adb4aaa708b8dc"
     },
-    "domain-cloud-native": {
-      "source": "actionbook/rust-skills",
-      "sourceType": "github",
-      "computedHash": "10a6e60e8d2a1b977fc5d5935976c17b498335ee2f19255438e45fd15a8811bc"
-    },
-    "domain-ml": {
-      "source": "actionbook/rust-skills",
-      "sourceType": "github",
-      "computedHash": "e53c7de1916555fe903c40270208a88e2350f8e5c2f81c5115059ccf4278cca1"
-    },
-    "gws-calendar": {
-      "source": "googleworkspace/cli",
-      "ref": "main",
-      "sourceType": "github",
-      "computedHash": "0c5956e1069552444b00bf45381f08ffa9a7bca9810fefb1801866216008bcfc"
-    },
     "m01-ownership": {
       "source": "actionbook/rust-skills",
       "sourceType": "github",
@@ -106,11 +90,6 @@
       "source": "actionbook/rust-skills",
       "sourceType": "github",
       "computedHash": "2feac2b9bb17689a7227fcae62c8a20351bb5afb271a47d49c27ba87ba9e7e26"
-    },
-    "unsafe-checker": {
-      "source": "actionbook/rust-skills",
-      "sourceType": "github",
-      "computedHash": "b76d79853846ea40ad42092c61de26da4561299b176768599751d5bcc13cf5db"
     }
   }
 }
