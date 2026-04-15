@@ -1,0 +1,2 @@
+[install.scopes]
+"@rover" = { registry = "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release" }
