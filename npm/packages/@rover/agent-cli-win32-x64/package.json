@@ -7,6 +7,6 @@
   "cpu": ["x64"],
   "files": ["bin/"],
   "publishConfig": {
-    "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release"
+    "registry": "https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release"
   }
 }
