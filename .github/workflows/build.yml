@@ -75,6 +75,10 @@ jobs:
           cache-workspace-crates: true
           cache-key: ${{ matrix.target }}
 
+      - name: Install cross
+        if: matrix.cross == true
+        run: cargo install cross --locked
+
       - name: Build
         env:
           BUILD_ENV: ${{ inputs.build_env }}
