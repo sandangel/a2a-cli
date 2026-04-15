@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          registry-url: https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
+          registry-url: https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
           scope: "@rover"
 
       - uses: actions/download-artifact@v4
@@ -78,7 +78,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ steps.auth.outputs.artifactory-token }}
         run: |
-          cat /home/runner/work/_temp/.npmrc
           NPM_TAG="${{ inputs.npm_tag }}"
           for pkg in npm/packages/@rover/agent-cli-darwin-arm64 npm/packages/@rover/agent-cli-darwin-x64 npm/packages/@rover/agent-cli-linux-arm64 npm/packages/@rover/agent-cli-linux-x64 npm/packages/@rover/agent-cli-win32-x64; do
             npm publish "$pkg" --tag "${NPM_TAG}"

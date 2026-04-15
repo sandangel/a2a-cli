@@ -39,6 +39,6 @@
     "rust"
   ],
   "publishConfig": {
-    "registry": "https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
+    "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
   }
 }
