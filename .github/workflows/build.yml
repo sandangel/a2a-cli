@@ -73,6 +73,10 @@ jobs:
           cache-workspace-crates: true
           cache-key: ${{ matrix.target }}
 
+      - name: Authenticate to Artifactory
+        if: matrix.cross == true
+        uses: sg-innersource/artifactory-oidc-access@v2.0.12
+
       - name: Install cross
         if: matrix.cross == true
         run: cargo install cross --locked --version 0.2.5
