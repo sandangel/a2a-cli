@@ -57,6 +57,11 @@ zeroize          = { version = "1", features = ["derive"] }
 sha2             = "0.10"
 percent-encoding = "2.3"
 
+# jq filter support (--jq flag)
+jaq-core = "3"
+jaq-std  = { version = "3", features = ["std", "format", "math", "log", "time", "regex"] }
+jaq-json = { version = "2", features = ["serde"] }
+
 # UUID
 uuid = { version = "1", features = ["v4"] }
 

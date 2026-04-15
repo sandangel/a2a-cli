@@ -6,7 +6,7 @@ Designed to be used by humans and AI coding tools alike.
 ## Rules of Engagement for AI Agents
 
 - **Read the answer from `artifacts`** — per the A2A spec, task outputs MUST be returned in `artifacts`. `status.message` is for in-progress communication only (e.g. `input-required` prompts), not final results.
-- **Use `--fields artifacts`** for concise extraction of the reply (AI tools); use `--format table` for human-readable output.
+- **Use `--fields .artifacts`** for concise extraction of the reply (AI tools); use `--format table` for human-readable output.
 - **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
 - **Confirm before canceling tasks** — `agc task cancel` is destructive.
@@ -32,7 +32,7 @@ agc auth login
 agc send "Hello, agent!"
 
 # Get just the reply artifacts
-agc send "What is the status?" --fields artifacts
+agc send "What is the status?" --fields .artifacts
 ```
 
 ## Output
@@ -44,7 +44,7 @@ agc send "What is the status?" --fields artifacts
 | `--format yaml` | YAML |
 | `--format csv` | CSV |
 | `--compact` | Single-line JSON (only with `--format json`) |
-| `--fields a,b.c` | Filter to dot-notation field paths (JSON only; AI tools) |
+| `--fields .a` | jq filter applied to output (AI tools) |
 
 ```bash
 # Humans
@@ -54,8 +54,8 @@ agc --format table agent list               # table of agents
 agc --format table auth status              # table of token statuses
 
 # AI tools
-agc send "Hello" --fields status.state      # just the state
-agc send "Hello" --fields artifacts         # reply artifacts (task output)
+agc send "Hello" --fields .status.state     # just the state
+agc send "Hello" --fields .artifacts        # reply artifacts (task output)
 agc send "Hello" --compact                  # single-line JSON
 ```
 
@@ -65,10 +65,10 @@ Multi-agent output is always NDJSON — one compact JSON line per agent, each ta
 
 ```bash
 agc send "Your message"
-agc send "Your message" --fields artifacts
+agc send "Your message" --fields .artifacts
 
 # Start a conversation and capture the context ID
-agc send "My name is San." --fields contextId,artifacts
+agc send "My name is San." --fields "{contextId,artifacts}"
 
 # Continue the conversation — rover uses contextId for chat history
 agc send "What is my name?" --context-id <contextId from above>
@@ -129,7 +129,7 @@ agc auth logout --agent rover
 agc card                     # public card — capabilities and auth info
 agc extended-card            # authenticated extended card
 agc card --agent rover       # specific agent
-agc card --fields name,skills,capabilities
+agc card --fields "{name,skills,capabilities}"
 ```
 
 ## Task Management
@@ -139,7 +139,7 @@ agc task list
 agc task list --status working
 agc task list --context-id ctx-abc
 agc task get  <id>
-agc task get  <id> --fields status.state
+agc task get  <id> --fields .status.state
 agc task cancel <id>          # confirm with user first!
 agc task subscribe <id>            # stream live task updates
 ```
@@ -167,7 +167,7 @@ only set for in-progress communication (e.g. `input-required`), not final result
 }
 ```
 
-Use `--fields artifacts` to extract the reply.
+Use `--fields .artifacts` to extract the reply.
 
 | `status.state` | Meaning |
 |----------------|---------|
@@ -190,7 +190,7 @@ don't require task tracking). The reply is in `parts` at the top level:
 }
 ```
 
-Use `--fields parts` to extract the reply.
+Use `--fields .parts` to extract the reply.
 
 Multi-agent results include `agent` and `agent_url` at the top level.
 

@@ -226,7 +226,7 @@ fn substitute(cmd: &str, fix: &DocFixture) -> String {
         .replace("<your request>", "Hello")
         // Misc
         .replace("<target>", "x86_64-unknown-linux-gnu")
-        .replace("<paths>", "id,status.state")
+        .replace("<paths>", ".id")
         // Real agent URLs from doc examples → mock server URLs
         .replace(
             "https://genai.stargate.toyota/a2a/rover-agent",

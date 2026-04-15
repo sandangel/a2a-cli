@@ -55,7 +55,7 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`; use `table` for human-readable) |
 | `--compact` | Single-line JSON (only with `--format json`) |
-| `--fields a,b.c` | Filter output to dot-notation field paths (`--format json` only; AI tools) |
+| `--fields <jq>` | jq filter applied to output (e.g. `.artifacts[0]`); AI tools |
 | `--transport jsonrpc|http-json` | Override transport (default: auto from agent card) |
 | `--tenant <id>` | Optional tenant ID forwarded to A2A requests |
 | `--bearer-token <token>` | Static bearer token, bypasses OAuth |
@@ -102,7 +102,7 @@ Controlled by `--format` (default: `json`):
 - **`table`**: human-readable aligned table — good for interactive use
 - **`yaml`** / **`csv`**: for scripting and data processing
 
-The `--fields` flag pre-filters the JSON value to dot-notation paths before formatting (e.g. `--fields status.state,id`). Applies to all formats.
+The `--fields` flag applies a jq filter to the output before formatting (e.g. `--fields .artifacts[0]`, `--fields .status.state`). Applies to all formats.
 Multi-agent output (`--all`) is always compact NDJSON regardless of `--format`.
 
 ### Auth — Per-Agent

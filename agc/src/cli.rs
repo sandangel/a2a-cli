@@ -50,7 +50,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub tenant: Option<String>,
 
-    /// Comma-separated field paths to include in output (e.g. "id,status.state")
+    /// jq filter expression applied to output (e.g. ".artifacts[0].parts[0].text", "id,status.state")
     #[arg(long, short = 'f', global = true)]
     pub fields: Option<String>,
 

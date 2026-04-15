@@ -66,10 +66,10 @@ agc auth login
 agc send "Hello, agent!"
 
 # Get just the reply (artifacts hold task output per A2A spec)
-agc send "What is 2+2?" --fields artifacts
+agc send "What is 2+2?" --fields .artifacts
 
 # Multi-turn conversation — capture contextId then continue with it
-agc send "My name is San." --fields contextId,artifacts
+agc send "My name is San." --fields "{contextId,artifacts}"
 agc send "What is my name?" --context-id <contextId>
 ```
 
@@ -99,7 +99,7 @@ agc send "What is my name?" --context-id <contextId>
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`) |
 | `--compact` | Single-line JSON |
-| `--fields a,b.c` | Filter output to dot-notation field paths |
+| `--fields <jq>` | jq filter applied to output (e.g. `.artifacts[0]`) |
 
 ## Output
 
@@ -109,7 +109,7 @@ agc --format table agent list
 agc --format table auth status
 
 # AI tools — extract just what you need
-agc send "Hello" --fields status.message.parts
+agc send "Hello" --fields .status.message.parts
 agc send "Hello" --compact
 ```
 
