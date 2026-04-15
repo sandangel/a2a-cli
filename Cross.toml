@@ -2,13 +2,13 @@
 passthrough = ["BUILD_ENV", "GITHUB_SHA"]
 
 [target.aarch64-unknown-linux-gnu]
-image = "artifactory.stargate.toyota/docker-remote/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
+image = "artifactory.stargate.toyota/ghcr-remote/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
 
 [target.aarch64-unknown-linux-musl]
-image = "artifactory.stargate.toyota/docker-remote/cross-rs/aarch64-unknown-linux-musl:0.2.5"
+image = "artifactory.stargate.toyota/ghcr-remote/cross-rs/aarch64-unknown-linux-musl:0.2.5"
 
 [target.x86_64-unknown-linux-musl]
-image = "artifactory.stargate.toyota/docker-remote/cross-rs/x86_64-unknown-linux-musl:0.2.5"
+image = "artifactory.stargate.toyota/ghcr-remote/cross-rs/x86_64-unknown-linux-musl:0.2.5"
 
 [target.x86_64-pc-windows-gnu]
-image = "artifactory.stargate.toyota/docker-remote/cross-rs/x86_64-pc-windows-gnu:0.2.5"
+image = "artifactory.stargate.toyota/ghcr-remote/cross-rs/x86_64-pc-windows-gnu:0.2.5"
