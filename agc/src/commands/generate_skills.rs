@@ -104,7 +104,7 @@ agc send "Summarise this PR"
 }}
 ```
 
-Use `--fields parts` when the agent returns a direct Message.
+Use `--fields .parts` when the agent returns a direct Message.
 
 | `status.state` | Meaning | Action |
 |---|---|---|
@@ -120,11 +120,12 @@ Use `--fields parts` when the agent returns a direct Message.
 ```bash
 agc agent add <alias> <url>           # register
 agc agent add <alias> <url> --description "..."
+agc agent add local http://localhost:8080  # local dev instance
 agc agent use <alias>                 # set active
 agc agent list                        # list all
 agc agent show [alias]                # details for one agent
 agc agent update <alias> --client-id <id>
-agc agent remove <alias>              # deregister
+agc agent remove local                # deregister
 ```
 
 ## Authentication
@@ -159,12 +160,12 @@ agc stream "<text>"                         # streaming — prints events as the
 | `--format yaml` | YAML |
 | `--format csv` | CSV |
 | `--compact` | Single-line JSON (with `--format json`) |
-| `--fields a,b.c` | Filter to dot-notation paths — **preferred for AI tools** |
+| `--fields <jq>` | jq filter applied to output — **preferred for AI tools** |
 
 ```bash
-agc send "Hello" --fields artifacts              # reply only
-agc send "Hello" --fields id,status.state        # task id + state
-agc --format table agent list                    # human-readable table
+agc send "Hello" --fields .artifacts              # reply only
+agc send "Hello" --fields "{{id,status}}"           # task id + status
+agc --format table agent list                     # human-readable table
 agc --format table auth status
 ```
 
@@ -187,7 +188,7 @@ agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
 
 ```bash
 agc task get <id>                     # fetch task by ID
-agc task get <id> --fields status.state
+agc task get <id> --fields .status.state
 agc task list                        # recent tasks
 agc task list --status working
 agc task list --context-id <id>
@@ -200,7 +201,7 @@ agc task subscribe <id>               # stream live task updates (SSE)
 ```bash
 agc card                              # public card — capabilities and auth
 agc card --agent <alias>
-agc card --fields name,skills,capabilities
+agc card --fields "{{name,skills,capabilities}}"
 agc extended-card                     # authenticated extended card
 ```
 
@@ -212,7 +213,7 @@ agc extended-card                     # authenticated extended card
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`) |
 | `--compact` | Single-line JSON |
-| `--fields <paths>` | Dot-notation field filter (JSON only) |
+| `--fields <jq>` | jq filter applied to output |
 | `--transport jsonrpc\|http-json` | Force transport (default: auto from card) |
 | `--tenant <id>` | Tenant ID forwarded to requests |
 | `--bearer-token <token>` | Static token — bypasses OAuth |

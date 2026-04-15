@@ -312,9 +312,37 @@ async fn agents_snippets_run_against_mock() {
     run_doc_snippets("AGENTS.md", AGENTS).await;
 }
 
-async fn run_doc_snippets(doc_name: &str, content: &str) {
+/// Generate `skills/agc/SKILL.md` fresh from the current binary, then run all
+/// its bash snippets against the mock server.  This ensures the skill template
+/// is tested without requiring a manual `agc generate-skills` step.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn skill_agc_snippets_run_against_mock() {
     let fix = DocFixture::setup().await;
 
+    // Generate the skill into a temp dir so we always test the current template.
+    let skills_dir = tempfile::tempdir().expect("skills tempdir");
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_agc"))
+        .args(["generate-skills"])
+        .env("AGC_CONFIG_DIR", fix.config_dir.path())
+        .env("AGC_KEYRING_BACKEND", "file")
+        .env_remove("AGC_AGENT_URL")
+        .current_dir(skills_dir.path())
+        .status()
+        .expect("run agc generate-skills");
+    assert!(status.success(), "agc generate-skills failed");
+
+    let content = std::fs::read_to_string(skills_dir.path().join("skills/agc/SKILL.md"))
+        .expect("read generated SKILL.md");
+
+    run_doc_snippets_with_fix("skills/agc/SKILL.md", &content, &fix).await;
+}
+
+async fn run_doc_snippets(doc_name: &str, content: &str) {
+    let fix = DocFixture::setup().await;
+    run_doc_snippets_with_fix(doc_name, content, &fix).await;
+}
+
+async fn run_doc_snippets_with_fix(doc_name: &str, content: &str, fix: &DocFixture) {
     let all = extract_agc_commands(content);
     let mut ran = 0;
     let mut skipped = 0;
