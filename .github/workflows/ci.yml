@@ -32,7 +32,7 @@ jobs:
       - name: Rustfmt
         uses: actions-rust-lang/rustfmt@v1
 
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.0.0
 
       - name: YAML validation
         run: uvx pre-commit run check-yaml --all-files
