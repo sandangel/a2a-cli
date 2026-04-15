@@ -80,6 +80,12 @@ jobs:
       - name: Build
         env:
           BUILD_ENV: ${{ inputs.build_env }}
+          # Mount the host cargo home into the cross Docker container so
+          # Swatinem/rust-cache's registry cache is reused inside Docker.
+          CARGO_HOME: /home/runner/.cargo
+          CROSS_CONTAINER_OPTS: >-
+            --volume /home/runner/.cargo:/home/runner/.cargo
+            --env CARGO_HOME=/home/runner/.cargo
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }} -p agc --locked
