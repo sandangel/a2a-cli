@@ -17,7 +17,7 @@ updates:
       day: monday
     labels:
       - dependencies
-      - area: ci
+      - area:ci
 
   - package-ecosystem: pip
     directory: /
