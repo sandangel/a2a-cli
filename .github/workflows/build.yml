@@ -122,11 +122,11 @@ jobs:
 
       - name: Attest
         if: inputs.attest
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: agc-${{ matrix.target }}.${{ matrix.archive }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: inputs.upload_artifacts
         with:
           name: binary-${{ matrix.target }}

@@ -31,15 +31,7 @@ jobs:
           registry-url: https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
           scope: "@rover"
 
-      - name: Debug .npmrc
-        run: |
-          echo "NPM_CONFIG_USERCONFIG=${NPM_CONFIG_USERCONFIG}"
-          echo "--- .npmrc contents ---"
-          cat "${NPM_CONFIG_USERCONFIG}"
-          echo "--- npm config list ---"
-          npm config list
-
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: binary-*
           path: artifacts/
