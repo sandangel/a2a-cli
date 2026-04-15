@@ -67,7 +67,7 @@ uuid = { version = "1", features = ["v4"] }
 
 # File system
 tempfile = "3"
-dirs     = "5"
+dirs     = "6"
 
 # Browser open
 open = "5"
