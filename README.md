@@ -8,7 +8,7 @@ Designed to be used by humans and AI coding tools alike.
 ### npm (recommended)
 
 ```bash
-npm install -g @rover/agent-cli --registry https://jp1-artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
+npm install -g @rover/agent-cli --registry https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release
 ```
 
 ### Direct download
