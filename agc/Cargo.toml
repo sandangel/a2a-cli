@@ -27,7 +27,7 @@ google-workspace = { path = "../gws-cli/crates/google-workspace" }
 
 # CLI
 clap       = { version = "4.5", features = ["derive", "env"] }
-indicatif  = "0.17"
+indicatif  = "0.18"
 
 # Async
 tokio      = { version = "1",   features = ["full"] }
