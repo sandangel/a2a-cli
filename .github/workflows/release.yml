@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: 'Release type'
+        description: Release type
         required: true
         type: choice
         options:
@@ -37,21 +37,19 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
-      tag:        ${{ steps.meta.outputs.tag }}
-      version:    ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
-      prev_tag:   ${{ steps.meta.outputs.prev_tag }}
-      build_env:  ${{ steps.meta.outputs.build_env }}
-      npm_tag:    ${{ steps.meta.outputs.npm_tag }}
+      prev_tag: ${{ steps.meta.outputs.prev_tag }}
+      build_env: ${{ steps.meta.outputs.build_env }}
+      npm_tag: ${{ steps.meta.outputs.npm_tag }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
+        run: cargo install git-cliff --locked
 
       - name: Determine version and push tag
         id: bump
@@ -150,15 +148,13 @@ jobs:
     needs: [plan, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.plan.outputs.tag }}
           fetch-depth: 0
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
+        run: cargo install git-cliff --locked
 
       - name: Generate changelog
         run: |
