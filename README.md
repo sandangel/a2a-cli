@@ -33,6 +33,23 @@ cargo build -p agc --release
 # binary: target/release/agc
 ```
 
+## Shell completions
+
+```bash
+# bash — add to ~/.bashrc
+source <(agc completions bash)
+
+# zsh — add to ~/.zshrc
+mkdir -p ~/.zsh/completions
+agc completions zsh > ~/.zsh/completions/_agc
+# then add to ~/.zshrc (if not already present):
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
+
+# fish
+agc completions fish > ~/.config/fish/completions/agc.fish
+```
+
 ## AI agent skills
 
 Install the `agc` skill so your AI coding tool (Claude Code, Cursor, Copilot, etc.) knows how to use this CLI:
@@ -90,6 +107,7 @@ agc send "What is my name?" --context-id <contextId>
 | `agc push-config create/get/list/delete` | Manage push notification configs |
 | `agc schema send/task/card` | Inspect A2A protocol types |
 | `agc config show` | Show CLI configuration |
+| `agc completions <shell>` | Print shell completion script |
 
 ## Global flags
 

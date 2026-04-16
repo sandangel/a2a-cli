@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use clap_complete::Shell;
 
 use crate::formatter::OutputFormat;
 
@@ -117,4 +118,55 @@ pub enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+
+    // ── Shell integration ─────────────────────────────────────────────
+    /// Print shell completion script to stdout
+    ///
+    /// Usage:
+    ///   bash:  source <(agc completions bash)
+    ///   zsh:   mkdir -p ~/.zsh/completions && agc completions zsh > ~/.zsh/completions/_agc
+    Completions {
+        /// Shell to generate completions for (bash, zsh, fish, elvish, powershell)
+        shell: Shell,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use std::collections::BTreeSet;
+
+    /// Asserts that the set of top-level subcommands matches the documented list.
+    ///
+    /// When you add or remove a subcommand, this test will fail — update:
+    ///   - AGENTS.md  (Commands table)
+    ///   - CONTEXT.md (relevant section)
+    ///   - README.md  (Commands table)
+    #[test]
+    fn subcommands_match_documented_list() {
+        let cmd = Cli::command();
+        let actual: BTreeSet<&str> = cmd.get_subcommands().map(|c| c.get_name()).collect();
+
+        let expected: BTreeSet<&str> = [
+            "agent",
+            "auth",
+            "card",
+            "completions",
+            "config",
+            "extended-card",
+            "generate-skills",
+            "push-config",
+            "schema",
+            "send",
+            "stream",
+            "task",
+        ]
+        .into();
+
+        assert_eq!(
+            actual, expected,
+            "CLI subcommands changed — update AGENTS.md, CONTEXT.md, and README.md"
+        );
+    }
 }

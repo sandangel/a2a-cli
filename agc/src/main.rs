@@ -43,6 +43,14 @@ async fn dispatch(cli: Cli) -> agc::error::Result<()> {
         Command::Config { command } => return run_config(command, args).await,
         Command::GenerateSkills(cmd) => return run_generate_skills(cmd).await,
         Command::Schema { command } => return run_schema(command, args).await,
+        Command::Completions { shell } => {
+            use clap::CommandFactory;
+            use clap_complete::generate;
+            let mut cmd = Cli::command();
+            let bin_name = cmd.get_name().to_string();
+            generate(*shell, &mut cmd, bin_name, &mut std::io::stdout());
+            return Ok(());
+        }
         _ => {}
     }
 

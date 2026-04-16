@@ -106,7 +106,8 @@ pub async fn run_to_value(
             | Command::Auth { .. }
             | Command::Config { .. }
             | Command::Schema { .. }
-            | Command::GenerateSkills(_) => {
+            | Command::GenerateSkills(_)
+            | Command::Completions { .. } => {
                 unreachable!("management commands handled before runner")
             }
         }
@@ -188,7 +189,8 @@ pub async fn run_to_value(
         | Command::Auth { .. }
         | Command::Config { .. }
         | Command::Schema { .. }
-        | Command::GenerateSkills(_) => {
+        | Command::GenerateSkills(_)
+        | Command::Completions { .. } => {
             unreachable!("management commands handled before runner")
         }
         Command::Stream(_) => Err(AgcError::InvalidInput(

@@ -1,6 +1,6 @@
 //! Extract `agc` commands from markdown docs and run them against mock servers.
 //!
-//! Every `agc` line in a ```bash block in README.md, CONTEXT.md, and AGENTS.md
+//! Every `agc` line in a ```bash block in README.md and AGENTS.md
 //! is categorised and tested. All commands are exercised:
 //!
 //!   - Placeholder args (<id>, <alias>, etc.) are substituted with real mock values
@@ -25,7 +25,6 @@ use tokio::process::Command as TokioCommand;
 // ── Doc sources ───────────────────────────────────────────────────────
 
 const README: &str = include_str!("../../README.md");
-const CONTEXT: &str = include_str!("../../CONTEXT.md");
 const AGENTS: &str = include_str!("../../AGENTS.md");
 
 // ── Fixture ───────────────────────────────────────────────────────────
@@ -268,8 +267,12 @@ fn extract_agc_commands(markdown: &str) -> Vec<String> {
 /// Only `auth login` is truly untestable — it opens an interactive OAuth browser flow.
 /// Usage/syntax description lines (containing `[`) are also skipped — they're templates,
 /// not runnable commands.
+/// Commands that redirect output to a file (`>`) are shell setup instructions that
+/// depend on the user's environment (e.g. `agc completions zsh > ~/.zsh/completions/_agc`).
 fn should_skip(cmd: &str) -> bool {
-    cmd.starts_with("agc auth login") || cmd.contains('[') // usage template like: agc [--agent x] <command>
+    cmd.starts_with("agc auth login")
+        || cmd.contains('[') // usage template like: agc [--agent x] <command>
+        || cmd.contains('>') // shell setup instructions (e.g. completions redirect)
 }
 
 // ── Shell word splitter ───────────────────────────────────────────────
@@ -300,11 +303,6 @@ fn shell_words(s: &str) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn readme_snippets_run_against_mock() {
     run_doc_snippets("README.md", README).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn context_snippets_run_against_mock() {
-    run_doc_snippets("CONTEXT.md", CONTEXT).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

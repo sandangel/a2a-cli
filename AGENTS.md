@@ -11,6 +11,15 @@
 > **Reference repos** (`A2A/`, `a2a-go/`, `gws-cli/`) are read-only references. Do not modify them.
 > `a2a-rs/` is also read-only — it is a git submodule containing the published A2A Rust SDK.
 
+## Rules of Engagement for AI Agents
+
+- **Read the answer from `artifacts`** — per the A2A spec, task outputs MUST be returned in `artifacts`. `status.message` is for in-progress communication only (e.g. `input-required` prompts), not final results.
+- **Use `--fields .artifacts`** for concise extraction of the reply; use `--format table` for human-readable output.
+- **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
+- **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
+- **Confirm before canceling tasks** — `agc task cancel` is destructive.
+- **Use `agc schema`** to inspect data structures before crafting messages.
+
 ## Build & Test
 
 ```bash
@@ -25,9 +34,34 @@ cargo fmt   -p agc                        # format
 
 Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo directly.
 
+## Quick Start
+
+```bash
+# Register an agent
+agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
+agc agent use rover
+
+# Authenticate (auto-detects OAuth flow from agent card)
+agc auth login
+
+# Send a message
+agc send "Hello, agent!"
+
+# Get just the reply artifacts
+agc send "What is the status?" --fields .artifacts
+
+# Multi-turn conversation
+agc send "My name is San." --fields "{contextId,artifacts}"
+agc send "What is my name?" --context-id <contextId from above>
+```
+
 ## Architecture
 
 ### Commands
+
+```bash
+agc [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--compact] <command> [args]
+```
 
 | Command | Purpose |
 |---------|---------|
@@ -46,6 +80,7 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 | `agc schema send/task/card` | Inspect A2A protocol types (JSON Schema generated from proto) |
 | `agc config show` | Show CLI configuration |
 | `agc generate-skills` | Regenerate `skills/agc/SKILL.md` — agc CLI reference for LLMs |
+| `agc completions <shell>` | Print shell completion script (bash, zsh, fish, elvish, powershell) |
 
 ### Global Flags
 
@@ -56,9 +91,28 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`; use `table` for human-readable) |
 | `--compact` | Single-line JSON (only with `--format json`) |
 | `--fields <jq>` | jq filter applied to output (e.g. `.artifacts[0]`); AI tools |
-| `--transport jsonrpc|http-json` | Override transport (default: auto from agent card) |
+| `--transport jsonrpc\|http-json` | Override transport (default: auto from agent card) |
 | `--tenant <id>` | Optional tenant ID forwarded to A2A requests |
 | `--bearer-token <token>` | Static bearer token, bypasses OAuth |
+
+### Output
+
+```bash
+# Human-readable
+agc --format table agent list
+agc --format table auth status
+
+# AI tools — extract just what you need
+agc send "Hello" --fields .artifacts        # task output
+agc send "Hello" --fields .status.state     # just the state
+agc send "Hello" --compact                  # single-line JSON
+```
+
+Multi-agent output is always NDJSON — one compact JSON line per agent, each tagged with `agent` and `agent_url`:
+
+```bash
+agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
+```
 
 ### Source Layout
 
@@ -93,17 +147,7 @@ Commands resolve targets from (in order of priority):
 3. `AGC_AGENT_URL` env var
 4. Config `current_agent`
 
-With multiple targets, commands dispatch in parallel using `FuturesUnordered` and stream results NDJSON — first-done-first, each line tagged with `agent` and `agent_url`.
-
-### Output Format
-
-Controlled by `--format` (default: `json`):
-- **`json`** (default): pretty-printed JSON; `--compact` makes it single-line
-- **`table`**: human-readable aligned table — good for interactive use
-- **`yaml`** / **`csv`**: for scripting and data processing
-
-The `--fields` flag applies a jq filter to the output before formatting (e.g. `--fields .artifacts[0]`, `--fields .status.state`). Applies to all formats.
-Multi-agent output (`--all`) is always compact NDJSON regardless of `--format`.
+With multiple targets, commands dispatch in parallel using `FuturesUnordered` and stream results as NDJSON — first-done-first.
 
 ### Auth — Per-Agent
 
@@ -132,6 +176,50 @@ The Rust A2A SDK lives in `a2a-rs/` (git submodule, read-only). Key path depende
 | `a2a-rs/a2a` | Core A2A protocol types (`AgentCard`, `Task`, `Message`, `Part`, etc.) |
 | `a2a-rs/a2a-client` | Async A2A client (`A2AClient`, `A2AClientFactory`, `AgentCardResolver`) |
 | `a2a-rs/a2acli` | Shared CLI arg structs (`MessageCommand`, `TaskIdCommand`, etc.) |
+
+## Response Shape
+
+`agc send` wraps the A2A `message/send` operation. The agent decides what to return:
+
+### Task response (most agents)
+
+Output is in `artifacts`. `status.message` is only set for in-progress communication (e.g. `input-required`), not final results.
+
+```json
+{
+  "id":        "task-abc123",
+  "contextId": "ctx-abc123",
+  "status": { "state": "completed" },
+  "artifacts": [
+    {
+      "artifactId": "...",
+      "parts": [{ "kind": "text", "text": "The agent's answer" }]
+    }
+  ]
+}
+```
+
+| `status.state` | Meaning |
+|----------------|---------|
+| `submitted` | Queued, not started |
+| `working` | In progress — poll with `agc task get <id>` |
+| `completed` | Finished — read `artifacts[*].parts` for the answer |
+| `failed` | Error — read `status.message` for details |
+| `input-required` | Agent needs a reply — read `status.message.parts`, then `agc send --task-id <id> "..."` |
+| `canceled` | Canceled |
+
+### Message response (simple agents)
+
+Some agents return a direct **Message** instead of a Task. The reply is in `parts` at the top level:
+
+```json
+{
+  "role":  "agent",
+  "parts": [{ "kind": "text", "text": "The agent's answer" }]
+}
+```
+
+Use `--fields .parts` to extract the reply. Multi-agent results include `agent` and `agent_url` at the top level.
 
 ## Skills
 
@@ -182,9 +270,25 @@ Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, pl
 | `AGC_AGENT_URL` | Default agent alias or URL (single agent) |
 | `AGC_BEARER_TOKEN` | Static bearer token — bypasses OAuth for all agents |
 | `AGC_KEYRING_BACKEND` | `keyring` (default) or `file` (headless/Docker) |
-| `AGC_BINARY_PATH` | Override binary path (for npm wrapper) |
 | `AGC_CLIENT_SECRET` | Client secret for Client Credentials OAuth flow |
+| `AGC_BINARY_PATH` | Override binary path (for npm wrapper) |
 | `BUILD_ENV` | `dev` / `stg` / prod (sets default host at compile time) |
+
+## Shell Completions
+
+```bash
+# bash — add to ~/.bashrc
+source <(agc completions bash)
+
+# zsh — add to ~/.zshrc
+mkdir -p ~/.zsh/completions
+agc completions zsh > ~/.zsh/completions/_agc
+# fpath=(~/.zsh/completions $fpath)
+# autoload -Uz compinit && compinit
+
+# fish
+agc completions fish > ~/.config/fish/completions/agc.fish
+```
 
 ## Error Exit Codes
 
