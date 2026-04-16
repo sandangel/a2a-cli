@@ -8,9 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use oauth2::basic::BasicClient;
+use oauth2::reqwest as oauth2_reqwest;
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, DeviceAuthorizationUrl, Scope, TokenUrl,
-    devicecode::StandardDeviceAuthorizationResponse,
+    AuthUrl, ClientId, ClientSecret, DeviceAuthorizationUrl, Scope,
+    StandardDeviceAuthorizationResponse, TokenUrl,
 };
 use rand::RngCore;
 use serde_json::Value;
@@ -478,26 +479,29 @@ async fn device_code_flow(
     scopes: &[String],
     agent_url: &str,
 ) -> Result<Token> {
-    let client = BasicClient::new(
-        ClientId::new(client_id.to_string()),
-        None,
-        AuthUrl::new("https://placeholder.invalid/auth".to_string())
-            .map_err(|e| AgcError::Auth(format!("auth URL: {e}")))?,
-        Some(
+    let http_client = oauth2_reqwest::ClientBuilder::new()
+        .redirect(oauth2_reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| AgcError::Auth(format!("build http client: {e}")))?;
+
+    let client = BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_auth_uri(
+            AuthUrl::new("https://placeholder.invalid/auth".to_string())
+                .map_err(|e| AgcError::Auth(format!("auth URL: {e}")))?,
+        )
+        .set_token_uri(
             TokenUrl::new(token_url.to_string())
                 .map_err(|e| AgcError::Auth(format!("token URL: {e}")))?,
-        ),
-    )
-    .set_device_authorization_url(
-        DeviceAuthorizationUrl::new(device_auth_url.to_string())
-            .map_err(|e| AgcError::Auth(format!("device auth URL: {e}")))?,
-    );
+        )
+        .set_device_authorization_url(
+            DeviceAuthorizationUrl::new(device_auth_url.to_string())
+                .map_err(|e| AgcError::Auth(format!("device auth URL: {e}")))?,
+        );
 
     let details: StandardDeviceAuthorizationResponse = client
         .exchange_device_code()
-        .map_err(|e| AgcError::Auth(format!("device code setup: {e}")))?
         .add_scopes(scopes.iter().map(|s| Scope::new(s.clone())))
-        .request_async(oauth2::reqwest::async_http_client)
+        .request_async(&http_client)
         .await
         .map_err(|e| AgcError::Auth(format!("device authorization: {e}")))?;
 
@@ -509,7 +513,7 @@ async fn device_code_flow(
 
     let token_response = client
         .exchange_device_access_token(&details)
-        .request_async(oauth2::reqwest::async_http_client, tokio::time::sleep, None)
+        .request_async(&http_client, tokio::time::sleep, None)
         .await
         .map_err(|e| AgcError::Auth(format!("device token exchange: {e}")))?;
 
@@ -539,22 +543,27 @@ async fn client_credentials_flow(
     let secret = std::env::var("AGC_CLIENT_SECRET")
         .map_err(|_| AgcError::Auth("client credentials requires AGC_CLIENT_SECRET".to_string()))?;
 
-    let client = BasicClient::new(
-        ClientId::new(client_id.to_string()),
-        Some(ClientSecret::new(secret)),
-        AuthUrl::new("https://placeholder.invalid/auth".to_string())
-            .map_err(|e| AgcError::Auth(format!("auth URL: {e}")))?,
-        Some(
+    let http_client = oauth2_reqwest::ClientBuilder::new()
+        .redirect(oauth2_reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| AgcError::Auth(format!("build http client: {e}")))?;
+
+    let client = BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_client_secret(ClientSecret::new(secret))
+        .set_auth_uri(
+            AuthUrl::new("https://placeholder.invalid/auth".to_string())
+                .map_err(|e| AgcError::Auth(format!("auth URL: {e}")))?,
+        )
+        .set_token_uri(
             TokenUrl::new(token_url.to_string())
                 .map_err(|e| AgcError::Auth(format!("token URL: {e}")))?,
-        ),
-    );
+        );
 
     use oauth2::TokenResponse;
     let resp = client
         .exchange_client_credentials()
         .add_scopes(scopes.iter().map(|s| Scope::new(s.clone())))
-        .request_async(oauth2::reqwest::async_http_client)
+        .request_async(&http_client)
         .await
         .map_err(|e| AgcError::Auth(format!("client credentials: {e}")))?;
 
