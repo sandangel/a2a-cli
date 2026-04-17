@@ -5,6 +5,11 @@ description = "A2A v0.3 backward-compatibility layer for agc"
 edition = "2024"
 license = "Apache-2.0"
 
+[lints.rust]
+warnings = "deny"
+[lints.clippy]
+all = "deny"
+
 [dependencies]
 # A2A v1 types — normalize_card returns AgentCard
 a2a    = { package = "agntcy-a2a",    path = "../a2a-rs/a2a" }

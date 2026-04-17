@@ -22,9 +22,18 @@ jobs:
           components: rustfmt, clippy
           cache-all-crates: true
           cache-workspace-crates: true
+          # Disable the default RUSTFLAGS=-D warnings: cargo passes CLI lint flags
+          # to all workspace members, which would break on the read-only a2a-rs
+          # submodule. Lint enforcement for agc is configured in agc/Cargo.toml
+          # via [lints] instead.
+          rustflags: ""
 
       - name: Clippy
-        run: cargo clippy -p agc
+        # Belt-and-suspenders: clear RUSTFLAGS at step level in case the action
+        # does not honour rustflags: "" above.
+        env:
+          RUSTFLAGS: ""
+        run: cargo clippy -p agc -p a2a-compat
 
       - name: Test
         run: cargo test -p agc
