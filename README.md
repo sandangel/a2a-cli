@@ -73,7 +73,10 @@ a2a agent generate-skills rover     # specific alias
 ## Quick start
 
 ```bash
-# Register an agent
+# Check existing agents (a default may already be configured)
+a2a agent list
+
+# Register an agent if needed
 a2a agent add rover https://genai.stargate.toyota/a2a/rover-agent
 a2a agent use rover
 
