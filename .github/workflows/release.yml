@@ -161,7 +161,7 @@ jobs:
           TAG="${{ needs.plan.outputs.tag }}"
           PREV="${{ needs.plan.outputs.prev_tag }}"
           if [ -n "$PREV" ]; then
-            git-cliff --strip header "${PREV}..${TAG}" -o changelog-release.md
+            git-cliff --strip header --tag "${TAG}" "${PREV}..${TAG}" -o changelog-release.md
           else
             git-cliff --strip header --tag "${TAG}" -o changelog-release.md
           fi

@@ -59,20 +59,7 @@ jobs:
           unzip -j artifacts/a2a-x86_64-pc-windows-gnu.zip "*/a2a.exe" -d npm/packages/@rover/a2a-cli-win32-x64/bin/
 
       - name: Set version in all packages
-        run: |
-          VERSION="${{ inputs.version }}"
-
-          for pkg in npm npm/packages/@rover/a2a-cli-darwin-arm64 npm/packages/@rover/a2a-cli-darwin-x64 npm/packages/@rover/a2a-cli-linux-arm64 npm/packages/@rover/a2a-cli-linux-x64 npm/packages/@rover/a2a-cli-win32-x64; do
-            npm version --no-git-tag-version --prefix "$pkg" "$VERSION"
-          done
-
-          node -e "
-            const fs = require('fs');
-            const f = 'npm/package.json';
-            const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
-            for (const k in pkg.optionalDependencies) pkg.optionalDependencies[k] = process.argv[1];
-            fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
-          " "$VERSION"
+        run: scripts/sync-npm-version "${{ inputs.version }}"
 
       - name: Publish platform packages
         env:

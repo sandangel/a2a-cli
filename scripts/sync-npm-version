@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Stamp VERSION into all npm package.json files (version + optionalDependencies).
+# Used by CI (publish-npm.yml) to set the release version before publishing.
+# package.json files in the repo keep "0.0.0" as a placeholder.
+#
+# Usage: scripts/sync-npm-version VERSION
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: scripts/sync-npm-version VERSION" >&2
+  exit 1
+fi
+
+VERSION="$1"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "stamping npm packages with $VERSION"
+
+node -e "
+  const fs = require('fs');
+  const path = require('path');
+  const version = process.argv[1];
+  const root = process.argv[2];
+  const pkgs = [
+    'npm/package.json',
+    'npm/packages/@rover/a2a-cli-darwin-arm64/package.json',
+    'npm/packages/@rover/a2a-cli-darwin-x64/package.json',
+    'npm/packages/@rover/a2a-cli-linux-arm64/package.json',
+    'npm/packages/@rover/a2a-cli-linux-x64/package.json',
+    'npm/packages/@rover/a2a-cli-win32-x64/package.json',
+  ];
+  for (const p of pkgs) {
+    const f = path.join(root, p);
+    const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+    pkg.version = version;
+    if (pkg.optionalDependencies) {
+      for (const k in pkg.optionalDependencies) pkg.optionalDependencies[k] = version;
+    }
+    fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+    console.log('  stamped', p);
+  }
+" "$VERSION" "$REPO_ROOT"

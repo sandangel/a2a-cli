@@ -1,11 +1,17 @@
 {
   "name": "@rover/a2a-cli-linux-arm64",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "A2A CLI binary for linux/arm64",
   "license": "Apache-2.0",
-  "os": ["linux"],
-  "cpu": ["arm64"],
-  "files": ["bin/"],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
   "publishConfig": {
     "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release"
   }
