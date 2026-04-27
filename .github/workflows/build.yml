@@ -92,18 +92,18 @@ jobs:
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p agc --locked
+            cross build --release --target ${{ matrix.target }} -p a2a-cli --locked
           else
-            cargo build --release --target ${{ matrix.target }} -p agc --locked
+            cargo build --release --target ${{ matrix.target }} -p a2a-cli --locked
           fi
         shell: bash
 
       - name: Package (unix)
         if: inputs.upload_artifacts && matrix.archive == 'tar.gz'
         run: |
-          ARTIFACT="agc-${{ matrix.target }}"
+          ARTIFACT="a2a-${{ matrix.target }}"
           mkdir -p staging
-          cp "target/${{ matrix.target }}/release/agc" staging/
+          cp "target/${{ matrix.target }}/release/a2a" staging/
           cp LICENSE README.md staging/
           tar czf "${ARTIFACT}.tar.gz" -C staging .
           shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
@@ -112,9 +112,9 @@ jobs:
       - name: Package (windows)
         if: inputs.upload_artifacts && matrix.archive == 'zip'
         run: |
-          ARTIFACT="agc-${{ matrix.target }}"
+          ARTIFACT="a2a-${{ matrix.target }}"
           mkdir -p "${ARTIFACT}"
-          cp "target/${{ matrix.target }}/release/agc.exe" "${ARTIFACT}/"
+          cp "target/${{ matrix.target }}/release/a2a.exe" "${ARTIFACT}/"
           cp LICENSE README.md "${ARTIFACT}/"
           zip -r "${ARTIFACT}.zip" "${ARTIFACT}/"
           shasum -a 256 "${ARTIFACT}.zip" > "${ARTIFACT}.zip.sha256"
@@ -124,12 +124,12 @@ jobs:
         if: inputs.attest
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: agc-${{ matrix.target }}.${{ matrix.archive }}
+          subject-path: a2a-${{ matrix.target }}.${{ matrix.archive }}
 
       - uses: actions/upload-artifact@v7
         if: inputs.upload_artifacts
         with:
           name: binary-${{ matrix.target }}
           path: |
-            agc-${{ matrix.target }}.${{ matrix.archive }}
-            agc-${{ matrix.target }}.${{ matrix.archive }}.sha256
+            a2a-${{ matrix.target }}.${{ matrix.archive }}
+            a2a-${{ matrix.target }}.${{ matrix.archive }}.sha256

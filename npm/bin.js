@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// bin.js — thin shim that spawns the native agc binary.
+// bin.js - thin shim that spawns the native a2a binary.
 // Passes all arguments through and inherits stdio so interactive
 // prompts (OAuth device-code flow, etc.) work correctly.
 
@@ -22,7 +22,7 @@ const result = spawnSync(binary, process.argv.slice(2), {
 });
 
 if (result.error) {
-  process.stderr.write(`Failed to run agc: ${result.error.message}\n`);
+  process.stderr.write(`Failed to run a2a: ${result.error.message}\n`);
   process.exit(1);
 }
 

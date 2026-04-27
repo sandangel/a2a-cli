@@ -1,4 +1,4 @@
-# Contributing to agc
+# Contributing to a2a-cli
 
 Thank you for contributing. All submissions require review via GitHub pull requests.
 
@@ -16,11 +16,11 @@ pre-commit install
 ## Build & test
 
 ```bash
-cargo build -p agc                        # dev build
-cargo build -p agc --release              # release build
-cargo test  -p agc                        # run all tests
-cargo clippy -p agc -- -D warnings        # lint
-cargo fmt   -p agc                        # format
+cargo build -p a2a-cli                        # dev build
+cargo build -p a2a-cli --release              # release build
+cargo test  -p a2a-cli                        # run all tests
+cargo clippy -p a2a-cli -- -D warnings        # lint
+cargo fmt   -p a2a-cli                        # format
 ```
 
 ## Pre-commit hooks
@@ -30,8 +30,8 @@ The repo uses [pre-commit](https://pre-commit.com/) to enforce quality gates loc
 | Hook | What it checks |
 |------|---------------|
 | `check-yaml` | YAML syntax on all `.yml`/`.yaml` files |
-| `fmt` | `cargo fmt --check` on `agc` and `a2a-compat` |
-| `clippy` | `cargo clippy -D warnings` on `agc` and `a2a-compat` |
+| `fmt` | `cargo fmt --check` on `a2a-cli` and `a2a-compat` |
+| `clippy` | `cargo clippy -D warnings` on `a2a-cli` and `a2a-compat` |
 
 Hooks run automatically on `git commit`. To run them manually:
 
@@ -75,24 +75,24 @@ This CLI is designed to be invoked by AI coding tools, so all user-supplied
 inputs must be treated as potentially adversarial. Before adding any flag that
 accepts a path, URL, or resource identifier, read the validation rules in
 [`AGENTS.md`](AGENTS.md) and use the appropriate helper from
-[`agc/src/validate.rs`](agc/src/validate.rs).
+[`a2a-cli/src/validate.rs`](a2a-cli/src/validate.rs).
 
 ## Repository layout
 
 ```
-agc/            main CLI binary crate
+a2a-cli/        main CLI source crate directory
 a2a-compat/     A2A v0.3 backward-compatibility layer
 a2a-rs/         A2A Rust SDK (read-only git submodule)
 gws-cli/        shared modules: fs_util, output, credential_store, validate (read-only)
-npm/            npm wrapper package (@rover/agent-cli)
+npm/            npm wrapper package (@rover/a2a-cli)
 ```
 
 > **Note:** `a2a-rs/` and `gws-cli/` are read-only references. Do not modify them.
 
 ## Relationship to gws-cli
 
-`agc` is inspired by and shares implementation patterns with [**gws**](https://github.com/googleworkspace/cli), the Google Workspace CLI.
-Three modules are included directly from `gws-cli/` via `#[path]` attributes in `agc/src/lib.rs`:
+`a2a-cli` is inspired by and shares implementation patterns with [**gws**](https://github.com/googleworkspace/cli), the Google Workspace CLI.
+Three modules are included directly from `gws-cli/` via `#[path]` attributes in `a2a-cli/src/lib.rs`:
 
 | Module | Source | Purpose |
 |--------|--------|---------|

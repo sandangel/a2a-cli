@@ -1,4 +1,4 @@
-# Release workflow for @rover/agent-cli
+# Release workflow for @rover/a2a-cli
 #
 # Triggered manually: Actions → Release → Run workflow → choose "release" or "rc".
 #

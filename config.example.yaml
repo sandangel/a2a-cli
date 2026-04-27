@@ -1,5 +1,5 @@
-# agc config — copy to ~/.config/agc/config.yaml
-# Run `agc agent use <alias>` to switch the active agent.
+# a2a-cli config — copy to ~/.config/a2a-cli/config.yaml
+# Run `a2a agent use <alias>` to switch the active agent.
 
 current_agent: rover
 
@@ -8,10 +8,10 @@ agents:
     url: https://dev.genai.stargate.toyota/a2a/rover-agent
     description: Rover Agent (dev)
     oauth:
-      client_id: https://dev.genai.stargate.toyota/a2a/agc/.well-known/client-metadata.json
+      client_id: https://dev.genai.stargate.toyota/a2a/a2a-cli/.well-known/client-metadata.json
 
   eai:
     url: https://dev.genai.stargate.toyota/a2a/eai-agent
     description: EAI Agent (dev)
     oauth:
-      client_id: https://dev.genai.stargate.toyota/a2a/agc/.well-known/client-metadata.json
+      client_id: https://dev.genai.stargate.toyota/a2a/a2a-cli/.well-known/client-metadata.json

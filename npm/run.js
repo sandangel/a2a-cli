@@ -2,34 +2,24 @@
 
 "use strict";
 
-const path = require("path");
-const fs = require("fs");
 const { spawnSync } = require("child_process");
-const { getPlatform } = require("./platform");
+const { getBinaryPath } = require("./install");
 
-const platform = getPlatform();
-const binPath = path.join(__dirname, "bin", platform.binary);
-
-if (!fs.existsSync(binPath)) {
-  console.error(
-    `agc binary not found at ${binPath}\nAuto-installing...`
-  );
-  const install = spawnSync(process.execPath, [path.join(__dirname, "install.js")], {
-    cwd: __dirname,
-    stdio: "inherit",
-  });
-  if (install.status !== 0) {
-    process.exit(install.status ?? 1);
-  }
+let binary;
+try {
+  binary = getBinaryPath();
+} catch (err) {
+  console.error(`Error: ${err.message}`);
+  process.exit(1);
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), {
+const result = spawnSync(binary, process.argv.slice(2), {
   cwd: process.cwd(),
   stdio: "inherit",
 });
 
 if (result.error) {
-  console.error(`Error running agc: ${result.error.message}`);
+  console.error(`Error running a2a: ${result.error.message}`);
   process.exit(1);
 }
 

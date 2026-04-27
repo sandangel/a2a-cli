@@ -1,0 +1,9 @@
+model = "gpt-5.4"  # Replace with your actual Azure model deployment name
+model_provider = "azure"
+model_reasoning_effort = "xhigh"
+
+[model_providers.azure]
+name = "Azure OpenAI"
+base_url = "https://rover-prod-eastus2.services.ai.azure.com/api/projects/rover-prod-eastus2/openai/v1"
+env_key = "AZURE_OPENAI_API_KEY"
+wire_api = "responses"

@@ -19,7 +19,7 @@ function getPlatformKey() {
   let osType;
   switch (rawOs) {
     case "Windows_NT":
-      osType = "pc-windows-msvc";
+      osType = "pc-windows-gnu";
       break;
     case "Darwin":
       osType = "apple-darwin";

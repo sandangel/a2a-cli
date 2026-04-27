@@ -2,10 +2,10 @@
 
 ## Project Overview
 
-`agc` (Agent CLI) is a **Rust** CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/). It is published as `@rover/agent-cli` on npm and as the `agc` binary.
+`a2a-cli` is a **Rust** CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/). It is published as `@rover/a2a-cli` on npm and as the `a2a` binary. The Rust package is `a2a-cli`, and the library crate is `a2a_cli`.
 
 > [!IMPORTANT]
-> This CLI is designed to be invoked by AI coding tools (Claude Code, Copilot, Cursor, etc.) as well as humans. Always assume CLI argument inputs can be adversarial — validate paths, reject control characters and dangerous Unicode, and encode user values before embedding in URLs or filenames. See `agc/src/validate.rs`.
+> This CLI is designed to be invoked by AI coding tools (Claude Code, Copilot, Cursor, etc.) as well as humans. Always assume CLI argument inputs can be adversarial — validate paths, reject control characters and dangerous Unicode, and encode user values before embedding in URLs or filenames. See `a2a-cli/src/validate.rs`.
 
 > [!NOTE]
 > **Reference repos** (`A2A/`, `a2a-go/`, `gws-cli/`) are read-only references. Do not modify them.
@@ -17,19 +17,19 @@
 - **Use `--fields .artifacts`** for concise extraction of the reply; use `--format table` for human-readable output.
 - **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
-- **Confirm before canceling tasks** — `agc task cancel` is destructive.
-- **Use `agc schema`** to inspect data structures before crafting messages.
+- **Confirm before canceling tasks** — `a2a task cancel` is destructive.
+- **Use `a2a schema`** to inspect data structures before crafting messages.
 
 ## Build & Test
 
 ```bash
-cargo build -p agc                        # dev build
-cargo build -p agc --release              # release build
-cargo test  -p agc                        # run all tests
-cargo clippy -p agc -- -D warnings        # lint
-cargo fmt   -p agc                        # format
+cargo build -p a2a-cli                        # dev build
+cargo build -p a2a-cli --release              # release build
+cargo test  -p a2a-cli                        # run all tests
+cargo clippy -p a2a-cli -- -D warnings        # lint
+cargo fmt   -p a2a-cli                        # format
 
-# Output binary: target/debug/agc (dev) or target/release/agc (release)
+# Output binary: target/debug/a2a (dev) or target/release/a2a (release)
 ```
 
 Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo directly.
@@ -38,21 +38,21 @@ Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo direct
 
 ```bash
 # Register an agent
-agc agent add rover https://genai.stargate.toyota/a2a/rover-agent
-agc agent use rover
+a2a agent add rover https://genai.stargate.toyota/a2a/rover-agent
+a2a agent use rover
 
 # Authenticate (auto-detects OAuth flow from agent card)
-agc auth login
+a2a auth login
 
 # Send a message
-agc send "Hello, agent!"
+a2a send "Hello, agent!"
 
 # Get just the reply artifacts
-agc send "What is the status?" --fields .artifacts
+a2a send "What is the status?" --fields .artifacts
 
 # Multi-turn conversation
-agc send "My name is San." --fields "{contextId,artifacts}"
-agc send "What is my name?" --context-id <contextId from above>
+a2a send "My name is San." --fields "{contextId,artifacts}"
+a2a send "What is my name?" --context-id <contextId from above>
 ```
 
 ## Architecture
@@ -60,27 +60,27 @@ agc send "What is my name?" --context-id <contextId from above>
 ### Commands
 
 ```bash
-agc [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--compact] <command> [args]
+a2a [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--compact] <command> [args]
 ```
 
 | Command | Purpose |
 |---------|---------|
-| `agc send` | Send a message to one or more agents and wait for response |
-| `agc stream` | Send a streaming message — prints events as they arrive |
-| `agc card` | Fetch and display the public agent card |
-| `agc extended-card` | Fetch the authenticated extended agent card |
-| `agc task get <id>` | Fetch a task by ID |
-| `agc task list` | List tasks with optional filters |
-| `agc task cancel <id>` | Cancel a running task |
-| `agc task subscribe <id>` | Subscribe to live task updates (streaming) |
-| `agc push-config create/get/list/delete` | Manage push notification configs |
-| `agc agent add/use/list/remove/show/update` | Named agent alias registry |
-| `agc agent generate-skills [alias...]` | Generate `skills/<alias>/SKILL.md` from live agent card |
-| `agc auth login/logout/status` | Per-agent OAuth flows |
-| `agc schema send/task/card` | Inspect A2A protocol types (JSON Schema generated from proto) |
-| `agc config show` | Show CLI configuration |
-| `agc generate-skills` | Regenerate `skills/agc/SKILL.md` — agc CLI reference for LLMs |
-| `agc completions <shell>` | Print shell completion script (bash, zsh, fish, elvish, powershell) |
+| `a2a send` | Send a message to one or more agents and wait for response |
+| `a2a stream` | Send a streaming message — prints events as they arrive |
+| `a2a card` | Fetch and display the public agent card |
+| `a2a extended-card` | Fetch the authenticated extended agent card |
+| `a2a task get <id>` | Fetch a task by ID |
+| `a2a task list` | List tasks with optional filters |
+| `a2a task cancel <id>` | Cancel a running task |
+| `a2a task subscribe <id>` | Subscribe to live task updates (streaming) |
+| `a2a push-config create/get/list/delete` | Manage push notification configs |
+| `a2a agent add/use/list/remove/show/update` | Named agent alias registry |
+| `a2a agent generate-skills [alias...]` | Generate `skills/<alias>/SKILL.md` from live agent card |
+| `a2a auth login/logout/status` | Per-agent OAuth flows |
+| `a2a schema send/task/card` | Inspect A2A protocol types (JSON Schema generated from proto) |
+| `a2a config show` | Show CLI configuration |
+| `a2a generate-skills` | Regenerate `skills/a2a/SKILL.md` — a2a CLI reference for LLMs |
+| `a2a completions <shell>` | Print shell completion script (bash, zsh, fish, elvish, powershell) |
 
 ### Global Flags
 
@@ -99,39 +99,39 @@ agc [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--comp
 
 ```bash
 # Human-readable
-agc --format table agent list
-agc --format table auth status
+a2a --format table agent list
+a2a --format table auth status
 
 # AI tools — extract just what you need
-agc send "Hello" --fields .artifacts        # task output
-agc send "Hello" --fields .status.state     # just the state
-agc send "Hello" --compact                  # single-line JSON
+a2a send "Hello" --fields .artifacts        # task output
+a2a send "Hello" --fields .status.state     # just the state
+a2a send "Hello" --compact                  # single-line JSON
 ```
 
 Multi-agent output is always NDJSON — one compact JSON line per agent, each tagged with `agent` and `agent_url`:
 
 ```bash
-agc --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
+a2a --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
 ```
 
 ### Source Layout
 
-All implementation is under `agc/src/`. Key modules:
+All implementation is currently under `a2a-cli/src/`. Key modules:
 
 | Module | Purpose |
 |--------|---------|
-| `agc/src/main.rs` | Entry point — CLI parse, dispatch, multi-agent orchestration |
-| `agc/src/cli.rs` | `Cli`, `GlobalArgs`, `Command` enum (clap derive) |
-| `agc/src/runner.rs` | `run_to_value` / `run_streaming` — A2A protocol dispatch |
-| `agc/src/client.rs` | Agent resolution, `build_http_client`, `resolve_target` |
-| `agc/src/config.rs` | Config file model (`~/.config/agc/config.yaml`) |
-| `agc/src/auth.rs` | OAuth flow selection, PKCE, Device Code, Client Credentials |
-| `agc/src/token_store.rs` | Token persistence (keyring + AES-256-GCM fallback) |
-| `agc/src/printer.rs` | `print_value` / `print_agent_json` — output formatting and `--fields` filtering |
-| `agc/src/formatter.rs` | `OutputFormat`, table/yaml/csv rendering (sourced from `gws-cli/` via `#[path]`) |
-| `agc/src/error.rs` | `AgcError` enum with exit codes |
-| `agc/src/validate.rs` | Input validation helpers |
-| `agc/src/commands/` | Subcommand handlers: `agent`, `auth`, `config`, `schema`, `generate_skills` |
+| `a2a-cli/src/main.rs` | Entry point — CLI parse, dispatch, multi-agent orchestration |
+| `a2a-cli/src/cli.rs` | `Cli`, `GlobalArgs`, `Command` enum (clap derive) |
+| `a2a-cli/src/runner.rs` | `run_to_value` / `run_streaming` — A2A protocol dispatch |
+| `a2a-cli/src/client.rs` | Agent resolution, `build_http_client`, `resolve_target` |
+| `a2a-cli/src/config.rs` | Config file model (`~/.config/a2a-cli/config.yaml`) |
+| `a2a-cli/src/auth.rs` | OAuth flow selection, PKCE, Device Code, Client Credentials |
+| `a2a-cli/src/token_store.rs` | Token persistence (keyring + AES-256-GCM fallback) |
+| `a2a-cli/src/printer.rs` | `print_value` / `print_agent_json` — output formatting and `--fields` filtering |
+| `a2a-cli/src/formatter.rs` | `OutputFormat`, table/yaml/csv rendering (sourced from `gws-cli/` via `#[path]`) |
+| `a2a-cli/src/error.rs` | `A2aCliError` enum with exit codes |
+| `a2a-cli/src/validate.rs` | Input validation helpers |
+| `a2a-cli/src/commands/` | Subcommand handlers: `agent`, `auth`, `config`, `schema`, `generate_skills` |
 
 Modules sourced from `gws-cli/` via `#[path]` in `lib.rs`:
 - `fs_util` — atomic file writes
@@ -144,7 +144,7 @@ Modules sourced from `gws-cli/` via `#[path]` in `lib.rs`:
 Commands resolve targets from (in order of priority):
 1. `--agent <alias|url>` (repeatable)
 2. `--all` — all registered agents from config
-3. `AGC_AGENT_URL` env var
+3. `A2A_AGENT_URL` env var
 4. Config `current_agent`
 
 With multiple targets, commands dispatch in parallel using `FuturesUnordered` and stream results as NDJSON — first-done-first.
@@ -152,14 +152,14 @@ With multiple targets, commands dispatch in parallel using `FuturesUnordered` an
 ### Auth — Per-Agent
 
 Each registered agent alias has its own OAuth config and token:
-- Tokens stored in OS keychain (service: `agc`) keyed by agent URL hostname:port
-- Fallback: AES-256-GCM encrypted file at `~/.config/agc/tokens/<host>.enc`
-- Backend: `AGC_KEYRING_BACKEND=keyring` (default) or `file` (headless/Docker)
+- Tokens stored in OS keychain (service: `a2a-cli`) keyed by agent URL hostname:port
+- Fallback encrypted files live under `~/.config/a2a-cli/tokens/<host>.enc`
+- Backend: `A2A_KEYRING_BACKEND=keyring` (default) or `file` (headless/Docker)
 - Flow auto-detected from agent card: AuthCode+PKCE > DeviceCode > ClientCredentials
 
 ### A2A Two-Layer Card Protocol
 
-`agc` implements the full A2A two-layer card protocol:
+`a2a-cli` implements the full A2A two-layer card protocol:
 
 1. **Public card** (`/.well-known/agent-card.json`) — fetched unauthenticated.
 2. **Auth** — OAuth flow triggered from public card's declared schemes.
@@ -179,7 +179,7 @@ The Rust A2A SDK lives in `a2a-rs/` (git submodule, read-only). Key path depende
 
 ## Response Shape
 
-`agc send` wraps the A2A `message/send` operation. The agent decides what to return:
+`a2a send` wraps the A2A `message/send` operation. The agent decides what to return:
 
 ### Task response (most agents)
 
@@ -202,10 +202,10 @@ Output is in `artifacts`. `status.message` is only set for in-progress communica
 | `status.state` | Meaning |
 |----------------|---------|
 | `submitted` | Queued, not started |
-| `working` | In progress — poll with `agc task get <id>` |
+| `working` | In progress — poll with `a2a task get <id>` |
 | `completed` | Finished — read `artifacts[*].parts` for the answer |
 | `failed` | Error — read `status.message` for details |
-| `input-required` | Agent needs a reply — read `status.message.parts`, then `agc send --task-id <id> "..."` |
+| `input-required` | Agent needs a reply — read `status.message.parts`, then `a2a send --task-id <id> "..."` |
 | `canceled` | Canceled |
 
 ### Message response (simple agents)
@@ -223,11 +223,11 @@ Use `--fields .parts` to extract the reply. Multi-agent results include `agent` 
 
 ## Skills
 
-`skills/agc/SKILL.md` teaches AI coding tools how to use the `agc` CLI — commands, flags, response structure, security rules.
+`skills/a2a/SKILL.md` teaches AI coding tools how to use the `a2a` CLI — commands, flags, response structure, security rules.
 
 Regenerate with:
 ```bash
-agc generate-skills
+a2a generate-skills
 ```
 
 CI auto-regenerates on push via `.github/workflows/generate-skills.yml`.
@@ -235,10 +235,10 @@ CI auto-regenerates on push via `.github/workflows/generate-skills.yml`.
 ## Input Validation
 
 > [!IMPORTANT]
-> All CLI argument inputs must be validated before use. See `agc/src/validate.rs`.
+> All CLI argument inputs must be validated before use. See `a2a-cli/src/validate.rs`.
 > The validation philosophy and checklist for new features are documented in [`gws-cli/AGENTS.md` — Input Validation & URL Safety](gws-cli/AGENTS.md). Read that section before adding any new flag that accepts user-supplied paths, URLs, or resource identifiers.
 
-`agc` imports `is_dangerous_unicode` directly from `gws-cli/crates/google-workspace/src/validate.rs` (via `#[path]` in `lib.rs`). The `agc`-specific validators build on top of it:
+`a2a-cli` imports `is_dangerous_unicode` directly from `gws-cli/crates/google-workspace/src/validate.rs` (via `#[path]` in `lib.rs`). The `a2a-cli`-specific validators build on top of it:
 
 | Scenario | Validator | Rejects |
 |----------|-----------|---------|
@@ -253,12 +253,12 @@ Validation is applied:
 
 ## Testing
 
-Tests are inline `#[cfg(test)]` modules in each source file. Run with:
+Tests are inline `#[cfg(test)]` modules in each source file plus integration tests under `a2a-cli/tests/`. Run with:
 
 ```bash
-cargo test -p agc              # all tests
-cargo test -p agc validate     # filter by module
-cargo test -p agc -- --nocapture  # show println output
+cargo test -p a2a-cli              # all tests
+cargo test -p a2a-cli validate     # filter by module
+cargo test -p a2a-cli -- --nocapture  # show println output
 ```
 
 Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, plus inherited tests from `credential_store`, `output`, `fs_util`.
@@ -267,27 +267,28 @@ Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, pl
 
 | Variable | Description |
 |----------|-------------|
-| `AGC_AGENT_URL` | Default agent alias or URL (single agent) |
-| `AGC_BEARER_TOKEN` | Static bearer token — bypasses OAuth for all agents |
-| `AGC_KEYRING_BACKEND` | `keyring` (default) or `file` (headless/Docker) |
-| `AGC_CLIENT_SECRET` | Client secret for Client Credentials OAuth flow |
-| `AGC_BINARY_PATH` | Override binary path (for npm wrapper) |
+| `A2A_AGENT_URL` | Default agent alias or URL (single agent) |
+| `A2A_BEARER_TOKEN` | Static bearer token — bypasses OAuth for all agents |
+| `A2A_KEYRING_BACKEND` | `keyring` (default) or `file` (headless/Docker) |
+| `A2A_CLIENT_SECRET` | Client secret for Client Credentials OAuth flow |
+| `A2A_CONFIG_DIR` | Override config directory, defaulting to `~/.config/a2a-cli` |
+| `A2A_BINARY_PATH` | Override binary path (for npm wrapper) |
 | `BUILD_ENV` | `dev` / `stg` / prod (sets default host at compile time) |
 
 ## Shell Completions
 
 ```bash
 # bash — add to ~/.bashrc
-source <(agc completions bash)
+source <(a2a completions bash)
 
 # zsh — add to ~/.zshrc
 mkdir -p ~/.zsh/completions
-agc completions zsh > ~/.zsh/completions/_agc
+a2a completions zsh > ~/.zsh/completions/_a2a
 # fpath=(~/.zsh/completions $fpath)
 # autoload -Uz compinit && compinit
 
 # fish
-agc completions fish > ~/.config/fish/completions/agc.fish
+a2a completions fish > ~/.config/fish/completions/a2a.fish
 ```
 
 ## Error Exit Codes
@@ -315,14 +316,14 @@ These are read-only. Read them for context and patterns; do not modify them.
 
 ### gws-cli shared modules
 
-`agc` directly includes three modules from `gws-cli/` via `#[path]` in `agc/src/lib.rs`:
+`a2a-cli` directly includes three modules from `gws-cli/` via `#[path]` in `a2a-cli/src/lib.rs`:
 
 | Included from `gws-cli/` | Used for |
 |--------------------------|----------|
 | `crates/google-workspace-cli/src/fs_util.rs` | Atomic file writes (`atomic_write`) |
 | `crates/google-workspace-cli/src/output.rs` | Output formatting, terminal sanitization |
 | `crates/google-workspace-cli/src/credential_store.rs` | AES-256-GCM token encryption, keyring integration |
-| `crates/google-workspace/src/validate.rs` | `is_dangerous_unicode` (imported in `agc/src/validate.rs`) |
+| `crates/google-workspace/src/validate.rs` | `is_dangerous_unicode` (imported in `a2a-cli/src/validate.rs`) |
 
 **Before changing auth, token storage, or validation logic**, read the corresponding implementation in `gws-cli/` — the patterns are intentionally shared. Key reference docs:
 

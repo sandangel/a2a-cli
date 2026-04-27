@@ -1,5 +1,5 @@
 {
-  "name": "@rover/agent-cli",
+  "name": "@rover/a2a-cli",
   "description": "A2A CLI — interact with A2A protocol agents from the terminal",
   "version": "0.1.0",
   "license": "UNLICENSED",
@@ -12,17 +12,17 @@
     "url": "https://github.com/sg-genai/genai-cli/issues"
   },
   "bin": {
-    "agc": "bin.js"
+    "a2a": "bin.js"
   },
   "scripts": {
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "@rover/agent-cli-darwin-arm64": "0.1.0",
-    "@rover/agent-cli-darwin-x64": "0.1.0",
-    "@rover/agent-cli-linux-arm64": "0.1.0",
-    "@rover/agent-cli-linux-x64": "0.1.0",
-    "@rover/agent-cli-win32-x64": "0.1.0"
+    "@rover/a2a-cli-darwin-arm64": "0.1.0",
+    "@rover/a2a-cli-darwin-x64": "0.1.0",
+    "@rover/a2a-cli-linux-arm64": "0.1.0",
+    "@rover/a2a-cli-linux-x64": "0.1.0",
+    "@rover/a2a-cli-win32-x64": "0.1.0"
   },
   "engines": {
     "node": ">=18"
@@ -40,5 +40,35 @@
   ],
   "publishConfig": {
     "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
+  },
+  "supportedPlatforms": {
+    "aarch64-apple-darwin": {
+      "artifact": "a2a-aarch64-apple-darwin.tar.gz",
+      "binary": "a2a"
+    },
+    "x86_64-apple-darwin": {
+      "artifact": "a2a-x86_64-apple-darwin.tar.gz",
+      "binary": "a2a"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "artifact": "a2a-aarch64-unknown-linux-gnu.tar.gz",
+      "binary": "a2a"
+    },
+    "aarch64-unknown-linux-musl": {
+      "artifact": "a2a-aarch64-unknown-linux-musl.tar.gz",
+      "binary": "a2a"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "artifact": "a2a-x86_64-unknown-linux-gnu.tar.gz",
+      "binary": "a2a"
+    },
+    "x86_64-unknown-linux-musl": {
+      "artifact": "a2a-x86_64-unknown-linux-musl.tar.gz",
+      "binary": "a2a"
+    },
+    "x86_64-pc-windows-gnu": {
+      "artifact": "a2a-x86_64-pc-windows-gnu.zip",
+      "binary": "a2a.exe"
+    }
   }
 }

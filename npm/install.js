@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// install.js — resolves the agc native binary for the current platform.
+// install.js - resolves the a2a native binary for the current platform.
 //
 // Resolution order:
-//   1. AGC_BINARY_PATH env var (developer override / CI)
-//   2. Platform-specific optional dependency (e.g. @rover/agent-cli-linux-x64)
-//   3. `agc` on PATH (for users who installed the binary separately)
+//   1. A2A_BINARY_PATH env var (developer override / CI)
+//   2. Platform-specific optional dependency (e.g. @rover/a2a-cli-linux-x64)
+//   3. `a2a` on PATH (for users who installed the binary separately)
 //
 // Run as postinstall to verify the binary resolves, and exported for bin.js.
 
@@ -17,11 +17,11 @@ const path = require('path');
 
 // Maps Node platform-arch → optional dependency package name.
 const PLATFORM_MAP = {
-  'darwin-arm64': '@rover/agent-cli-darwin-arm64',
-  'darwin-x64':   '@rover/agent-cli-darwin-x64',
-  'linux-arm64':  '@rover/agent-cli-linux-arm64',
-  'linux-x64':    '@rover/agent-cli-linux-x64',
-  'win32-x64':    '@rover/agent-cli-win32-x64',
+  'darwin-arm64': '@rover/a2a-cli-darwin-arm64',
+  'darwin-x64':   '@rover/a2a-cli-darwin-x64',
+  'linux-arm64':  '@rover/a2a-cli-linux-arm64',
+  'linux-x64':    '@rover/a2a-cli-linux-x64',
+  'win32-x64':    '@rover/a2a-cli-win32-x64',
 };
 
 function platformKey() {
@@ -29,7 +29,32 @@ function platformKey() {
 }
 
 function binaryName() {
-  return os.platform() === 'win32' ? 'agc.exe' : 'agc';
+  return os.platform() === 'win32' ? 'a2a.exe' : 'a2a';
+}
+
+function assertExistingFile(envName, binPath) {
+  let stat;
+  try {
+    stat = fs.statSync(binPath);
+  } catch {
+    throw new Error(
+      `${envName} is set to "${binPath}" but the file does not exist.`
+    );
+  }
+
+  if (!stat.isFile()) {
+    throw new Error(`${envName} is set to "${binPath}" but it is not a file.`);
+  }
+}
+
+function resolveFromEnv() {
+  const a2aOverride = process.env.A2A_BINARY_PATH;
+  if (a2aOverride) {
+    assertExistingFile('A2A_BINARY_PATH', a2aOverride);
+    return a2aOverride;
+  }
+
+  return null;
 }
 
 /**
@@ -50,12 +75,12 @@ function resolveFromOptionalDep() {
 }
 
 /**
- * Check if `agc` is on PATH and return its absolute path.
+ * Check if `a2a` is on PATH and return its absolute path.
  */
 function resolveFromPath() {
   try {
     const which = os.platform() === 'win32' ? 'where' : 'which';
-    const result = execFileSync(which, ['agc'], {
+    const result = execFileSync(which, ['a2a'], {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -68,20 +93,13 @@ function resolveFromPath() {
 }
 
 /**
- * Returns the absolute path to the agc binary.
+ * Returns the absolute path to the a2a binary.
  * Throws if the binary cannot be found.
  */
 function getBinaryPath() {
   // 1. Developer/CI override
-  const envOverride = process.env.AGC_BINARY_PATH;
-  if (envOverride) {
-    if (!fs.existsSync(envOverride)) {
-      throw new Error(
-        `AGC_BINARY_PATH is set to "${envOverride}" but the file does not exist.`
-      );
-    }
-    return envOverride;
-  }
+  const envOverride = resolveFromEnv();
+  if (envOverride) return envOverride;
 
   // 2. Platform-specific optional dependency (preferred: bundled binary)
   const fromDep = resolveFromOptionalDep();
@@ -94,11 +112,11 @@ function getBinaryPath() {
   const platform = platformKey();
   const supported = Object.keys(PLATFORM_MAP).join(', ');
   throw new Error(
-    `agc binary not found for platform "${platform}".\n` +
+    `a2a binary not found for platform "${platform}".\n` +
     `Supported platforms: ${supported}\n\n` +
     `To fix:\n` +
-    `  • Reinstall:  npm install @rover/agent-cli\n` +
-    `  • Or set:     AGC_BINARY_PATH=/path/to/agc`
+    `  - Reinstall:  npm install @rover/a2a-cli\n` +
+    `  - Or set:     A2A_BINARY_PATH=/path/to/a2a`
   );
 }
 
@@ -110,10 +128,10 @@ if (require.main === module) {
       try { fs.chmodSync(bin, 0o755); } catch {}
     }
     execFileSync(bin, ['--version'], { stdio: 'pipe' });
-    process.stderr.write(`agc ready: ${bin}\n`);
+    process.stderr.write(`a2a ready: ${bin}\n`);
   } catch (err) {
     // Don't fail npm install — the binary may be placed by a later build step.
-    process.stderr.write(`[agc postinstall] warning: ${err.message}\n`);
+    process.stderr.write(`[a2a postinstall] warning: ${err.message}\n`);
     process.exit(0);
   }
 }

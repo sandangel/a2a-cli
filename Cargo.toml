@@ -1,5 +1,5 @@
 [workspace]
-members = ["agc", "a2a-compat"]
+members = ["a2a-cli", "a2a-compat"]
 resolver = "2"
 
 [workspace.package]
