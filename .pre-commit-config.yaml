@@ -12,4 +12,4 @@ repos:
         args: ["-p", "a2a-cli", "-p", "a2a-compat", "--", "--check"]
         pass_filenames: false
       - id: clippy
-        args: ["-p", "a2a-cli", "-p", "a2a-compat", "--no-deps", "--", "-D", "warnings"]
+        args: ["-p", "a2a-cli@0.2.0", "-p", "a2a-compat", "--no-deps", "--", "-D", "warnings"]

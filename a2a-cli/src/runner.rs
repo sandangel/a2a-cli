@@ -16,7 +16,7 @@ use a2a::{
     ListTasksRequest, Message, Part, PushNotificationConfig, Role, SendMessageConfiguration,
     SendMessageRequest, SubscribeToTaskRequest, TaskState,
 };
-use a2a_client::{A2AClient, A2AClientFactory, auth::AuthInterceptor};
+use a2a_client::{A2AClient, A2AClientFactory, Transport, auth::AuthInterceptor};
 use a2a_compat::MessageParams;
 use a2acli::{Binding, MessageCommand, PushConfigCommand};
 use futures::StreamExt;
@@ -439,7 +439,7 @@ async fn build_client_from_card(
     card: &AgentCard,
     bearer: Option<&str>,
     binding: Option<Binding>,
-) -> Result<A2AClient> {
+) -> Result<A2AClient<Box<dyn Transport>>> {
     let mut builder = A2AClientFactory::builder();
     if let Some(b) = binding {
         let proto = match b {
@@ -458,7 +458,10 @@ async fn build_client_from_card(
         .map_err(A2aCliError::A2A)
 }
 
-async fn finish<T>(client: A2AClient, result: std::result::Result<T, a2a::A2AError>) -> Result<T> {
+async fn finish<T>(
+    client: A2AClient<Box<dyn Transport>>,
+    result: std::result::Result<T, a2a::A2AError>,
+) -> Result<T> {
     let _ = client.destroy().await;
     result.map_err(A2aCliError::A2A)
 }

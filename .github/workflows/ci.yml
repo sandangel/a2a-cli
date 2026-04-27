@@ -33,10 +33,10 @@ jobs:
         # does not honour rustflags: "" above.
         env:
           RUSTFLAGS: ""
-        run: cargo clippy -p a2a-cli -p a2a-compat
+        run: cargo clippy -p a2a-cli@0.2.0 -p a2a-compat
 
       - name: Test
-        run: cargo test -p a2a-cli
+        run: cargo test -p a2a-cli@0.2.0
 
       - name: Rustfmt
         uses: actions-rust-lang/rustfmt@v1
