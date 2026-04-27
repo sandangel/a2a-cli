@@ -8,10 +8,10 @@ agents:
     url: https://dev.genai.stargate.toyota/a2a/rover-agent
     description: Rover Agent (dev)
     oauth:
-      client_id: https://dev.genai.stargate.toyota/a2a/a2a-cli/.well-known/client-metadata.json
+      client_id: https://dev.genai.stargate.toyota/a2a/cli/.well-known/client-metadata.json
 
   eai:
     url: https://dev.genai.stargate.toyota/a2a/eai-agent
     description: EAI Agent (dev)
     oauth:
-      client_id: https://dev.genai.stargate.toyota/a2a/a2a-cli/.well-known/client-metadata.json
+      client_id: https://dev.genai.stargate.toyota/a2a/cli/.well-known/client-metadata.json

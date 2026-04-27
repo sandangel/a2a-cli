@@ -11,7 +11,7 @@ use crate::validate::AgentAlias;
 
 const CONFIG_DIR: &str = "a2a-cli";
 const CONFIG_FILE: &str = "config.yaml";
-const CLIENT_METADATA_PATH: &str = "/a2a/a2a-cli/.well-known/client-metadata.json";
+const CLIENT_METADATA_PATH: &str = "/a2a/cli/.well-known/client-metadata.json";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
