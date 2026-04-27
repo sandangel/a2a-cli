@@ -63,7 +63,7 @@ aes-gcm          = "0.10"
 rand             = "0.8"
 base64           = { version = "0.22", features = ["std"] }
 zeroize          = { version = "1", features = ["derive"] }
-sha2             = "0.10"
+sha2             = "0.11"
 percent-encoding = "2.3"
 
 # jq filter support (--jq flag)
