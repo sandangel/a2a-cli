@@ -54,14 +54,25 @@ jobs:
       - name: Determine version and push tag
         id: bump
         run: |
+          # Latest stable tag (no pre-release suffix) — RC tags are excluded
+          LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
+            | grep -v '\-' | sort -V | tail -1)
+
           NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//; s/-[a-zA-Z].*//')
-          if [ -z "$NEXT" ]; then
-            LATEST_TAG=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | sort -V | tail -1)
-            if [ -z "$LATEST_TAG" ]; then
-              # No tags yet and no bumpable commits — start at 0.1.0
+
+          # git-cliff may return empty or the same version when there are no
+          # bumpable commits since the last stable tag.
+          LATEST_STABLE_VER="${LATEST_STABLE#v}"
+          if [ -z "$NEXT" ] || [ "$NEXT" = "$LATEST_STABLE_VER" ]; then
+            if [ -z "$LATEST_STABLE" ]; then
+              # No tags at all — start at 0.1.0
               NEXT="0.1.0"
+            elif [ "${{ inputs.release_type }}" = "rc" ]; then
+              # No new bumpable commits but an RC was requested — reuse the
+              # current version so we tag HEAD as rc.N+1 of the same series.
+              NEXT="$LATEST_STABLE_VER"
             else
-              echo "::error::No releasable commits found since ${LATEST_TAG}"
+              echo "::error::No releasable commits found since ${LATEST_STABLE}"
               exit 1
             fi
           fi
