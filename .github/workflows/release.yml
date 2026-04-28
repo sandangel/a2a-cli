@@ -66,7 +66,14 @@ jobs:
           LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
             | grep -v '\-' | sort -V | tail -1)
 
-          NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//; s/-[a-zA-Z].*//')
+          # Pass an explicit range so git-cliff only inspects commits since the
+          # last stable tag. Without this, if HEAD is already tagged (e.g. an RC),
+          # git-cliff treats nothing as unreleased and returns the current version.
+          if [ -n "$LATEST_STABLE" ]; then
+            NEXT=$(git-cliff --bumped-version "${LATEST_STABLE}.." 2>/dev/null | sed 's/^v//; s/-[a-zA-Z].*//')
+          else
+            NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//; s/-[a-zA-Z].*//')
+          fi
 
           # git-cliff may return empty or the same version when there are no
           # bumpable commits since the last stable tag.
