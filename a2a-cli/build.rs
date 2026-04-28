@@ -20,7 +20,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("cargo:rustc-env=A2A_DEFAULT_HOST={host}");
 
-    let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+    // Resolve version from the nearest vX.Y.Z git tag so Cargo.toml can stay
+    // at a placeholder (0.0.0) and never fall out of sync with released tags.
+    let git_version = std::process::Command::new("git")
+        .args(["describe", "--tags", "--match", "v[0-9]*", "--always"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().trim_start_matches('v').to_string())
+        .filter(|s| !s.is_empty());
+    let pkg_version =
+        git_version.unwrap_or_else(|| std::env::var("CARGO_PKG_VERSION").unwrap_or_default());
     let build_version = if build_env == "dev" {
         let sha = std::env::var("GITHUB_SHA")
             .map(|s| s[..7].to_string())
@@ -32,6 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rustc-env=A2A_BUILD_VERSION={build_version}");
     println!("cargo:rerun-if-env-changed=BUILD_ENV");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs");
 
     // Proto → JSON Schema
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);

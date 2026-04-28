@@ -4,22 +4,7 @@ version = 4
 
 [[package]]
 name = "a2a-cli"
-version = "0.1.0"
-dependencies = [
- "a2a-client-lf",
- "a2a-lf",
- "clap",
- "futures",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "a2a-cli"
-version = "0.2.0"
+version = "0.0.0"
 dependencies = [
  "a2a-cli 0.1.0",
  "a2a-client-lf",
@@ -63,6 +48,21 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "a2a-cli"
+version = "0.1.0"
+dependencies = [
+ "a2a-client-lf",
+ "a2a-lf",
+ "clap",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

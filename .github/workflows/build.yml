@@ -64,6 +64,8 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -100,9 +102,9 @@ jobs:
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p 'a2a-cli@0.2.0' --locked
+            cross build --release --target ${{ matrix.target }} -p 'a2a-cli@0.0.0' --locked
           else
-            cargo build --release --target ${{ matrix.target }} -p 'a2a-cli@0.2.0' --locked
+            cargo build --release --target ${{ matrix.target }} -p 'a2a-cli@0.0.0' --locked
           fi
         shell: bash
 

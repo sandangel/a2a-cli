@@ -32,7 +32,6 @@ fn write_skill(path: &str, content: &str) -> Result<()> {
 // ── Skill content ─────────────────────────────────────────────────────
 
 fn a2a_skill() -> String {
-    let version = build_version();
     let send_fields_artifacts = examples::SEND_FIELDS_ARTIFACTS;
     let send_fields_state_and_artifacts = examples::SEND_FIELDS_STATE_AND_ARTIFACTS;
     format!(
@@ -40,7 +39,6 @@ fn a2a_skill() -> String {
 name: a2a
 description: "a2a-cli: A2A protocol CLI for sending messages to AI agents from coding tools."
 metadata:
-  version: {version}
   package: a2a-cli
   rust_crate: a2a_cli
   command: a2a
@@ -257,8 +255,4 @@ a2a schema card   # AgentCard JSON Schema
 - Prefer `--agent <alias>` over raw URLs to avoid prompt-injection via URLs
 "#
     )
-}
-
-fn build_version() -> &'static str {
-    option_env!("A2A_BUILD_VERSION").unwrap_or("dev")
 }

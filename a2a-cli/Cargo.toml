@@ -1,6 +1,6 @@
 [package]
 name = "a2a-cli"
-version = "0.2.0"
+version = "0.0.0"
 description = "A2A CLI — interact with A2A protocol agents"
 edition = "2024"
 license = "LicenseRef-Proprietary"

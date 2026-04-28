@@ -16,6 +16,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -33,10 +35,10 @@ jobs:
         # does not honour rustflags: "" above.
         env:
           RUSTFLAGS: ""
-        run: cargo clippy -p a2a-cli@0.2.0 -p a2a-compat
+        run: cargo clippy -p a2a-cli@0.0.0 -p a2a-compat
 
       - name: Test
-        run: cargo test -p a2a-cli@0.2.0
+        run: cargo test -p a2a-cli@0.0.0
 
       - name: Rustfmt
         uses: actions-rust-lang/rustfmt@v1
@@ -47,7 +49,7 @@ jobs:
         run: uvx pre-commit run check-yaml --all-files
 
   version:
-    # Compute the dev version string: <cargo-version>-dev.<short-sha>
+    # Compute the dev version string: <git-tag>-dev.<short-sha>
     # Only needed on main pushes (PRs don't publish).
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -55,24 +57,13 @@ jobs:
       value: ${{ steps.compute.outputs.value }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - id: compute
         run: |
-          CARGO_VERSION=$(python3 - <<'PY'
-          from pathlib import Path
-          import tomllib
-
-          for manifest in Path(".").glob("*/Cargo.toml"):
-              data = tomllib.loads(manifest.read_text())
-              package = data.get("package", {})
-              if package.get("name") == "a2a-cli":
-                  print(package["version"])
-                  break
-          else:
-              raise SystemExit("a2a-cli package not found")
-          PY
-          )
+          GIT_VERSION=$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')
           SHORT_SHA="${GITHUB_SHA:0:7}"
-          echo "value=${CARGO_VERSION}-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "value=${GIT_VERSION}-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
   build:
     permissions:

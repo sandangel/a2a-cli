@@ -23,16 +23,16 @@
 ## Build & Test
 
 ```bash
-cargo build -p a2a-cli                        # dev build
-cargo build -p a2a-cli --release              # release build
-cargo test  -p a2a-cli                        # run all tests
-cargo clippy -p a2a-cli -- -D warnings        # lint
-cargo fmt   -p a2a-cli                        # format
+uv run inv build          # dev build
+uv run inv release        # release build
+uv run inv test           # run all tests
+uv run inv lint           # fmt check + clippy
+uv run inv fix            # auto-fix fmt + clippy
 
 # Output binary: target/debug/a2a (dev) or target/release/a2a (release)
 ```
 
-Rust edition: 2024. Minimum Rust version: 1.85. No Makefile — use cargo directly.
+Rust edition: 2024. Minimum Rust version: 1.85. Use `uv run inv` for all local tasks — see `tasks.py`.
 
 ## Quick Start
 

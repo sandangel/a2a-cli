@@ -5,23 +5,37 @@ Thank you for contributing. All submissions require review via GitHub pull reque
 ## Prerequisites
 
 - Rust 1.85+
-- `cargo` (no Makefile — use cargo directly)
-- `pre-commit` — install once via `uv`:
+- `cargo`
+- [uv](https://docs.astral.sh/uv/) — Python package manager, used for the task runner and pre-commit:
 
 ```bash
-uv tool install pre-commit
-pre-commit install
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dev dependencies (invoke + pre-commit)
+uv sync --dev
+
+# Install pre-commit hooks
+uv run pre-commit install
 ```
 
 ## Build & test
 
+The project includes an [Invoke](https://www.pyinvoke.org/) task runner for common local dev workflows. Run tasks via `uv`:
+
 ```bash
-cargo build -p a2a-cli                        # dev build
-cargo build -p a2a-cli --release              # release build
-cargo test  -p a2a-cli                        # run all tests
-cargo clippy -p a2a-cli -- -D warnings        # lint
-cargo fmt   -p a2a-cli                        # format
+uv run inv build              # dev build (current host)
+uv run inv test               # run all tests
+uv run inv test --filter=yaml # run tests matching a name
+uv run inv lint               # fmt check + clippy
+uv run inv fix                # auto-fix fmt + clippy
+uv run inv install            # dev build + install to ~/.local/bin/a2a
+uv run inv install-release    # release build + install to ~/.local/bin/a2a
+uv run inv version            # print the git-derived version
+uv run inv clean              # cargo clean
+uv run inv -l                 # list all tasks
 ```
+
 
 ## Pre-commit hooks
 
