@@ -77,8 +77,16 @@ jobs:
         if: matrix.cross == true
         uses: sg-innersource/artifactory-oidc-access@v2.0.12
 
-      - name: Install cross
+      - name: Cache cross binary
         if: matrix.cross == true
+        id: cache-cross
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cross
+          key: cross-0.2.5-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install cross
+        if: matrix.cross == true && steps.cache-cross.outputs.cache-hit != 'true'
         run: cargo install cross --locked --version 0.2.5
 
       - name: Build

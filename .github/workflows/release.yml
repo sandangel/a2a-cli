@@ -48,7 +48,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache git-cliff binary
+        id: cache-git-cliff-plan
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/git-cliff
+          key: git-cliff-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install git-cliff
+        if: steps.cache-git-cliff-plan.outputs.cache-hit != 'true'
         run: cargo install git-cliff --locked
 
       - name: Determine version and push tag
@@ -164,7 +172,15 @@ jobs:
           ref: ${{ needs.plan.outputs.tag }}
           fetch-depth: 0
 
+      - name: Cache git-cliff binary
+        id: cache-git-cliff-release
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/git-cliff
+          key: git-cliff-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install git-cliff
+        if: steps.cache-git-cliff-release.outputs.cache-hit != 'true'
         run: cargo install git-cliff --locked
 
       - name: Generate changelog
