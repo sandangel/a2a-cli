@@ -48,17 +48,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache git-cliff binary
-        id: cache-git-cliff-plan
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/bin/git-cliff
-          key: git-cliff-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Install git-cliff
-        if: steps.cache-git-cliff-plan.outputs.cache-hit != 'true'
-        run: cargo install git-cliff --locked
-
       - name: Determine version and push tag
         id: bump
         run: |
@@ -85,19 +74,34 @@ jobs:
               | grep -v '\-' | sort -V | tail -1)
             LATEST_STABLE_VER="${LATEST_STABLE#v}"
 
-            # Pass an explicit range so git-cliff only inspects commits since the
-            # last stable tag — HEAD may already be tagged as a previous RC.
-            if [ -n "$LATEST_STABLE" ]; then
-              NEXT=$(git-cliff --bumped-version "${LATEST_STABLE}.." 2>/dev/null | sed 's/^v//; s/-[a-zA-Z].*//')
-            else
-              NEXT=$(git-cliff --bumped-version 2>/dev/null | sed 's/^v//; s/-[a-zA-Z].*//')
-            fi
+            # Inspect commit subjects since the last stable tag to determine the
+            # bump level. git-cliff --bumped-version is unreliable here: in v2.x
+            # it treats RC tags in the range as "current" and returns no bump.
+            RANGE="${LATEST_STABLE:+${LATEST_STABLE}..}HEAD"
+            SUBJECTS=$(git log --format=%s ${RANGE})
 
-            if [ -z "$NEXT" ] || [ "$NEXT" = "$LATEST_STABLE_VER" ]; then
-              if [ -z "$LATEST_STABLE" ]; then
-                NEXT="0.1.0"
+            MAJOR=0; MINOR=0; PATCH=0
+            while IFS= read -r msg; do
+              if echo "$msg" | grep -qP '!(\(.+\))?:|\bBREAKING CHANGE\b'; then
+                MAJOR=1
+              elif echo "$msg" | grep -qP '^feat(\(.+\))?[!:]'; then
+                MINOR=1
+              elif echo "$msg" | grep -qP '^(fix|perf|refactor)(\(.+\))?[!:]'; then
+                PATCH=1
+              fi
+            done <<< "$SUBJECTS"
+
+            if [ -z "$LATEST_STABLE_VER" ]; then
+              NEXT="0.1.0"
+            else
+              IFS='.' read -r MAJ MIN PAT <<< "$LATEST_STABLE_VER"
+              if [ "$MAJOR" = "1" ]; then
+                NEXT="$((MAJ + 1)).0.0"
+              elif [ "$MINOR" = "1" ]; then
+                NEXT="${MAJ}.$((MIN + 1)).0"
+              elif [ "$PATCH" = "1" ]; then
+                NEXT="${MAJ}.${MIN}.$((PAT + 1))"
               else
-                # No bumpable commits — reuse the current version for rc.N+1
                 NEXT="$LATEST_STABLE_VER"
               fi
             fi
