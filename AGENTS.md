@@ -256,9 +256,8 @@ Validation is applied:
 Tests are inline `#[cfg(test)]` modules in each source file plus integration tests under `a2a-cli/tests/`. Run with:
 
 ```bash
-cargo test -p a2a-cli              # all tests
-cargo test -p a2a-cli validate     # filter by module
-cargo test -p a2a-cli -- --nocapture  # show println output
+uv run inv test                        # all tests
+uv run inv test --filter=validate      # filter by module
 ```
 
 Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, plus inherited tests from `credential_store`, `output`, `fs_util`.

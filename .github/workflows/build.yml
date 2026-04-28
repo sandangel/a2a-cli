@@ -102,9 +102,9 @@ jobs:
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p 'a2a-cli@0.0.0' --locked
+            cross build --release --target ${{ matrix.target }} -p 'a2a-bin' --locked
           else
-            cargo build --release --target ${{ matrix.target }} -p 'a2a-cli@0.0.0' --locked
+            cargo build --release --target ${{ matrix.target }} -p 'a2a-bin' --locked
           fi
         shell: bash
 

@@ -9,7 +9,7 @@ repos:
     rev: v1.0
     hooks:
       - id: fmt
-        args: ["-p", "a2a-cli", "-p", "a2a-compat", "--", "--check"]
+        args: ["-p", "a2a-bin", "-p", "a2a-compat", "--", "--check"]
         pass_filenames: false
       - id: clippy
-        args: ["-p", "a2a-cli@0.0.0", "-p", "a2a-compat", "--no-deps", "--", "-D", "warnings"]
+        args: ["-p", "a2a-bin", "-p", "a2a-compat", "--no-deps", "--", "-D", "warnings"]

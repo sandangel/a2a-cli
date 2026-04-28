@@ -12,7 +12,7 @@ Local development tasks — run with: uv run inv <task>
 
 from invoke import task
 
-PKG = "a2a-cli@0.0.0"
+PKG = "a2a-bin"
 BIN = "target/debug/a2a"
 RELEASE_BIN = "target/release/a2a"
 
@@ -41,14 +41,14 @@ def test(c, filter=""):
 @task
 def lint(c):
     """Check formatting and run clippy."""
-    c.run(f"cargo fmt -p a2a-cli -- --check", pty=True)
+    c.run(f"cargo fmt -p a2a-bin -- --check", pty=True)
     c.run(f"cargo clippy -p '{PKG}' -p a2a-compat -- -D warnings", pty=True)
 
 
 @task
 def fix(c):
     """Auto-fix formatting and clippy lints."""
-    c.run("cargo fmt -p a2a-cli", pty=True)
+    c.run("cargo fmt -p a2a-bin", pty=True)
     c.run(f"cargo clippy -p '{PKG}' -p a2a-compat --fix --allow-dirty -- -D warnings", pty=True)
 
 

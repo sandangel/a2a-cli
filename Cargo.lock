@@ -3,10 +3,10 @@
 version = 4
 
 [[package]]
-name = "a2a-cli"
+name = "a2a-bin"
 version = "0.0.0"
 dependencies = [
- "a2a-cli 0.1.0",
+ "a2a-cli",
  "a2a-client-lf",
  "a2a-compat",
  "a2a-lf",
@@ -90,7 +90,7 @@ dependencies = [
 name = "a2a-compat"
 version = "0.1.0"
 dependencies = [
- "a2a-cli 0.1.0",
+ "a2a-cli",
  "a2a-lf",
  "futures",
  "reqwest",

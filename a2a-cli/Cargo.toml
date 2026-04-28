@@ -1,11 +1,11 @@
 [package]
-name = "a2a-cli"
+name = "a2a-bin"
 version = "0.0.0"
 description = "A2A CLI — interact with A2A protocol agents"
 edition = "2024"
 license = "LicenseRef-Proprietary"
 
-# Enforce warnings-as-errors for a2a-cli only.
+# Enforce warnings-as-errors for a2a-bin only.
 # Using [lints] instead of `-- -D warnings` on the CLI because cargo passes
 # CLI lint flags to all workspace members (including read-only a2a-rs path deps).
 [lints.rust]
