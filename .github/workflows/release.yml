@@ -1,10 +1,15 @@
 # Release workflow for @rover/a2a-cli
 #
-# Triggered manually: Actions → Release → Run workflow → choose "release" or "rc".
+# Triggered manually from main: Actions → Release → Run workflow
 #
-# Tagging rules:
-#   rc      — tags HEAD of main as v{next}-rc.{N} (auto-increment)
-#   release — retags the latest RC commit as v{next} (no new code enters)
+# RC flow:
+#   1. Recreate release/candidate from the latest stable release tag
+#   2. Merge main → release/candidate, or cherry-pick specific commits if provided
+#   3. Compute version bump from commits on release/candidate since last stable tag
+#   4. Tag HEAD of release/candidate as v{next}-rc.{N} (auto-increment)
+#
+# Release flow (release_type=release):
+#   Promote the latest RC tag to stable — no new code enters.
 #
 # Changelog range (prev_tag → tag):
 #   release      — latest stable release → new release tag
@@ -17,7 +22,6 @@ run-name: "Release (${{ inputs.release_type || 'rc' }})"
 
 permissions:
   contents: write
-  actions: write
   attestations: write
   id-token: write
 
@@ -32,6 +36,10 @@ on:
         options:
           - rc
           - release
+      commits:
+        description: "Commits to cherry-pick from main (comma-separated SHAs). Leave empty to merge all of main."
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     outputs:
-      tag: ${{ steps.meta.outputs.tag }}
+      tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       prev_tag: ${{ steps.meta.outputs.prev_tag }}
@@ -53,12 +61,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine version and push tag
-        id: bump
+      - name: Set up git identity
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Prepare release/candidate branch
+        if: inputs.release_type == 'rc'
+        run: |
+          # Delete existing release/candidate if present
+          if git ls-remote --exit-code origin refs/heads/release/candidate; then
+            git push origin --delete release/candidate
+          fi
+
+          # Base: latest stable release tag; fall back to root commit if none
+          LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
+            | grep -v '\-' | sort -V | tail -1)
+          if [ -n "$LATEST_STABLE" ]; then
+            BASE_COMMIT=$(git rev-list -n1 "$LATEST_STABLE")
+          else
+            BASE_COMMIT=$(git rev-list --max-parents=0 HEAD)
+          fi
+
+          git checkout -b release/candidate "$BASE_COMMIT"
+
+          COMMITS="${{ inputs.commits }}"
+          if [ -n "$COMMITS" ]; then
+            # Cherry-pick the requested commits from main
+            echo "$COMMITS" | tr ',' '\n' | sed 's/[[:space:]]//g' | while read -r sha; do
+              [ -n "$sha" ] && git cherry-pick "$sha"
+            done
+          else
+            git merge --no-edit origin/main
+          fi
+
+          git push origin release/candidate
+
+      - name: Compute version and push tag
+        id: tag
+        run: |
           if [ "${{ inputs.release_type }}" = "release" ]; then
             # Promote the latest RC to stable — version comes from the RC tag,
             # not from commit analysis (no new code enters a release).
@@ -67,21 +108,18 @@ jobs:
               echo "::error::No RC tags found. Cut an RC first."
               exit 1
             fi
-            # Strip -rc.N suffix to get the stable version
             NEXT="${LATEST_RC#v}"
             NEXT="${NEXT%-rc.*}"
             RC_COMMIT=$(git rev-list -n1 "$LATEST_RC")
             TAG="v${NEXT}"
             git tag "$TAG" "$RC_COMMIT"
           else
-            # RC: compute next version from commits since the last stable tag.
+            # RC: HEAD is now release/candidate — compute bump from commits
+            # since the last stable tag.
             LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
               | grep -v '\-' | sort -V | tail -1)
             LATEST_STABLE_VER="${LATEST_STABLE#v}"
 
-            # Inspect commit subjects since the last stable tag to determine the
-            # bump level. git-cliff --bumped-version is unreliable here: in v2.x
-            # it treats RC tags in the range as "current" and returns no bump.
             RANGE="${LATEST_STABLE:+${LATEST_STABLE}..}HEAD"
             SUBJECTS=$(git log --format=%s ${RANGE})
 
@@ -125,21 +163,10 @@ jobs:
           git push origin "$TAG"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Update run name with version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.bump.outputs.tag }}"
-          TYPE="${{ inputs.release_type }}"
-          gh api \
-            --method PATCH \
-            "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --field "display_title=Release (${TYPE}) — ${TAG}"
-
       - name: Resolve metadata
         id: meta
         run: |
-          TAG="${{ steps.bump.outputs.tag }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
           echo "tag=${TAG}"         >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -173,6 +200,16 @@ jobs:
           fi
 
           echo "resolved: tag=${TAG}, prev_tag=${PREV}"
+
+      - name: Write job summary
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          TYPE="${{ inputs.release_type }}"
+          {
+            echo "## Release: \`${TAG}\`"
+            echo "**Type:** ${TYPE}"
+            echo "**Prev tag:** ${{ steps.meta.outputs.prev_tag || '(none)' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ── build ───────────────────────────────────────────────────────────────────
   build:
