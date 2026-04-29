@@ -13,8 +13,11 @@
 
 name: Release
 
+run-name: "Release (${{ inputs.release_type || 'rc' }})"
+
 permissions:
   contents: write
+  actions: write
   attestations: write
   id-token: write
 
@@ -24,10 +27,11 @@ on:
       release_type:
         description: Release type
         required: true
+        default: rc
         type: choice
         options:
-          - release
           - rc
+          - release
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,6 +40,7 @@ jobs:
   # ── plan ────────────────────────────────────────────────────────────────────
   plan:
     runs-on: ubuntu-latest
+    environment: release
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
@@ -119,6 +124,17 @@ jobs:
 
           git push origin "$TAG"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Update run name with version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.bump.outputs.tag }}"
+          TYPE="${{ inputs.release_type }}"
+          gh api \
+            --method PATCH \
+            "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --field "display_title=Release (${TYPE}) — ${TAG}"
 
       - name: Resolve metadata
         id: meta
