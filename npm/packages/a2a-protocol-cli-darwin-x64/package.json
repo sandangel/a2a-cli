@@ -1,0 +1,15 @@
+{
+  "name": "a2a-protocol-cli-darwin-x64",
+  "version": "0.0.0",
+  "description": "A2A CLI binary for darwin/x64",
+  "license": "Apache-2.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ]
+}

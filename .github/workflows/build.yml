@@ -1,0 +1,136 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to build (default: caller ref)"
+        required: false
+        type: string
+        default: ""
+      upload_artifacts:
+        description: "Upload packaged binaries as workflow artifacts"
+        required: false
+        type: boolean
+        default: false
+      attest:
+        description: "Create build provenance attestation (requires id-token: write + attestations: write)"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-pc-windows-gnu
+            runner: ubuntu-latest
+            archive: zip
+            cross: true
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          rustflags: ""
+          cache-all-crates: true
+          cache-workspace-crates: true
+          cache-key: ${{ matrix.target }}
+
+      - name: Cache cross binary
+        if: matrix.cross == true
+        id: cache-cross
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cross
+          key: cross-0.2.5-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install cross
+        if: matrix.cross == true && steps.cache-cross.outputs.cache-hit != 'true'
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build
+        env:
+          # Mount only the registry/git caches (not the full cargo home) so
+          # Swatinem/rust-cache's downloads are reused inside the Docker
+          # container without triggering flock() failures on the GHA filesystem.
+          CROSS_CONTAINER_OPTS: >-
+            --volume /home/runner/.cargo/registry:/root/.cargo/registry
+            --volume /home/runner/.cargo/git:/root/.cargo/git
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
+          else
+            cargo build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
+          fi
+        shell: bash
+
+      - name: Package (unix)
+        if: inputs.upload_artifacts && matrix.archive == 'tar.gz'
+        run: |
+          ARTIFACT="a2a-${{ matrix.target }}"
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/a2a" staging/
+          cp LICENSE README.md staging/
+          tar czf "${ARTIFACT}.tar.gz" -C staging .
+          shasum -a 256 "${ARTIFACT}.tar.gz" > "${ARTIFACT}.tar.gz.sha256"
+        shell: bash
+
+      - name: Package (windows)
+        if: inputs.upload_artifacts && matrix.archive == 'zip'
+        run: |
+          ARTIFACT="a2a-${{ matrix.target }}"
+          mkdir -p "${ARTIFACT}"
+          cp "target/${{ matrix.target }}/release/a2a.exe" "${ARTIFACT}/"
+          cp LICENSE README.md "${ARTIFACT}/"
+          zip -r "${ARTIFACT}.zip" "${ARTIFACT}/"
+          shasum -a 256 "${ARTIFACT}.zip" > "${ARTIFACT}.zip.sha256"
+        shell: bash
+
+      - name: Attest
+        if: inputs.attest
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: a2a-${{ matrix.target }}.${{ matrix.archive }}
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.upload_artifacts
+        with:
+          name: binary-${{ matrix.target }}
+          path: |
+            a2a-${{ matrix.target }}.${{ matrix.archive }}
+            a2a-${{ matrix.target }}.${{ matrix.archive }}.sha256

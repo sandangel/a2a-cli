@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt / clippy / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+          cache-all-crates: true
+          cache-workspace-crates: true
+          # Disable the default RUSTFLAGS=-D warnings: cargo passes CLI lint flags
+          # to all workspace members, which would break on the read-only a2a-rs
+          # submodule. Lint enforcement for a2a-cli is configured in its Cargo.toml
+          # via [lints] instead.
+          rustflags: ""
+
+      - name: Clippy
+        # Belt-and-suspenders: clear RUSTFLAGS at step level in case the action
+        # does not honour rustflags: "" above.
+        env:
+          RUSTFLAGS: ""
+        run: cargo clippy -p a2a-protocol-cli -p a2a-protocol-compat
+
+      - name: Test
+        run: cargo test -p a2a-protocol-cli
+
+      - name: Rustfmt
+        uses: actions-rust-lang/rustfmt@v1
+
+      - uses: astral-sh/setup-uv@v8.1.0
+
+      - name: YAML validation
+        run: uvx pre-commit run check-yaml --all-files
+
+  build:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/build.yml
+    with:
+      upload_artifacts: ${{ github.event_name == 'push' }}
+      attest: ${{ github.event_name == 'push' }}

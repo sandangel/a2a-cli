@@ -1,0 +1,12 @@
+# a2a-cli config — copy to ~/.config/a2a-cli/config.yaml.
+# The CLI ships with no preconfigured agents. Register one with:
+#   a2a agent add example https://agent.example.com
+#   a2a agent use example
+#
+# Equivalent YAML:
+#
+# current_agent: example
+# agents:
+#   example:
+#     url: https://agent.example.com
+#     description: Example A2A agent

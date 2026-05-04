@@ -1,0 +1,6 @@
+[submodule "a2a-rs"]
+	path = a2a-rs
+	url = https://github.com/a2aproject/a2a-rs.git
+[submodule "gws-cli"]
+	path = gws-cli
+	url = https://github.com/googleworkspace/cli.git
