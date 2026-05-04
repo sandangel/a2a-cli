@@ -3,6 +3,11 @@ name: Publish npm
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Git ref to publish from
+        required: false
+        type: string
+        default: ""
       version:
         description: npm package version (e.g. 0.1.0, 0.1.0-rc.1, 0.1.0-dev.abc1234)
         required: true
@@ -17,26 +22,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          registry-url: https://registry.npmjs.org
+          registry-url: https://npm.pkg.github.com
+          scope: '@sandangel'
 
       - uses: astral-sh/setup-uv@v8.1.0
-
-      - name: Verify npm token
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::NPM_TOKEN secret is required to publish to npmjs.org"
-            exit 1
-          fi
-        shell: bash
 
       - uses: actions/download-artifact@v8
         with:
@@ -70,15 +68,15 @@ jobs:
 
       - name: Publish platform packages
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NPM_TAG="${{ inputs.npm_tag }}"
           for pkg in npm/packages/a2a-protocol-cli-darwin-arm64 npm/packages/a2a-protocol-cli-darwin-x64 npm/packages/a2a-protocol-cli-linux-arm64 npm/packages/a2a-protocol-cli-linux-x64 npm/packages/a2a-protocol-cli-win32-x64; do
-            npm publish "$pkg" --tag "${NPM_TAG}" --provenance
+            npm publish "$pkg" --tag "${NPM_TAG}"
           done
 
       - name: Publish main package
         working-directory: npm
-        run: npm publish --tag "${{ inputs.npm_tag }}" --provenance
+        run: npm publish --tag "${{ inputs.npm_tag }}"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

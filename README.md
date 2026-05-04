@@ -9,16 +9,16 @@ The Rust package is `a2a-protocol-cli`, and the library crate is `a2a_cli`.
 ### npm (recommended)
 
 ```bash
-npm install -g a2a-protocol-cli
+npm install -g @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com
 ```
 
-The npm package is a binary distribution for the `a2a` command. Use the Rust
-crate for programmatic integration.
+The GitHub Packages npm package is a binary distribution for the `a2a` command.
+Use the Rust crate for programmatic integration.
 
 ### Cargo
 
 ```bash
-cargo install a2a-protocol-cli
+cargo install --git https://github.com/sandangel/a2a-cli a2a-protocol-cli
 ```
 
 ### Direct download
@@ -66,7 +66,7 @@ Use the Rust crate directly when embedding A2A client behavior in another
 Rust application:
 
 ```bash
-cargo add a2a-protocol-cli
+cargo add a2a-protocol-cli --git https://github.com/sandangel/a2a-cli
 ```
 
 ```rust

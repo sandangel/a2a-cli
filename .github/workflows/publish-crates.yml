@@ -1,21 +1,27 @@
-name: Publish crates
+name: Package Rust crates
 
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Git ref to package
+        required: false
+        type: string
+        default: ""
       version:
-        description: crates.io package version (e.g. 0.1.0 or 0.1.0-rc.1)
+        description: Rust package version (e.g. 0.1.0 or 0.1.0-rc.1)
         required: true
         type: string
 
 jobs:
-  publish:
+  package:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref }}
           submodules: recursive
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -24,17 +30,12 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
 
-      - name: Verify crates.io token
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
-            echo "::error::CARGO_REGISTRY_TOKEN secret is required to publish to crates.io"
-            exit 1
-          fi
-        shell: bash
+      - name: Package crates
+        run: uv run inv package-crates --version="${{ inputs.version }}"
 
-      - name: Publish crates
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: uv run inv publish-crates --version="${{ inputs.version }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rust-crates
+          path: |
+            target/package-artifacts/*.crate
+            target/package-artifacts/*.sha256

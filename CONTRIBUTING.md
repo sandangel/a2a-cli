@@ -79,18 +79,19 @@ Releases are cut manually from the Actions tab:
 
 1. Go to **Actions → Release → Run workflow**.
 2. Choose `rc` to cut a pre-release, or `release` to promote the latest RC to a stable release.
-   - `rc`: tags HEAD of `main` as `v{next}-rc.{N}`, publishes a pre-release on GitHub.
-   - `release`: retags the latest RC commit as `v{next}` (no new code), publishes a stable release and pushes to npm.
+   - `rc`: tags HEAD of `main` as `v{next}-rc.{N}`, publishes a pre-release on GitHub, and pushes npm packages to GitHub Packages with the `next` dist-tag.
+   - `release`: retags the latest RC commit as `v{next}` (no new code), publishes a stable GitHub Release, and pushes npm packages to GitHub Packages with the `latest` dist-tag.
 
-Publishing uses the `CARGO_REGISTRY_TOKEN` repository secret for crates.io and
-the `NPM_TOKEN` repository secret for npmjs.org with npm provenance.
+Publishing uses the workflow `GITHUB_TOKEN` with `contents: write` and
+`packages: write`. Rust crates are packaged as `.crate` release assets and
+workflow artifacts because GitHub Packages does not provide a Cargo registry.
 
 Release helpers are Invoke tasks:
 
 ```bash
 uv run inv sync-cargo-version --version=1.2.3
 uv run inv sync-npm-version --version=1.2.3
-uv run inv publish-crates --version=1.2.3 --dry-run
+uv run inv package-crates --version=1.2.3 --dry-run
 ```
 
 The next version is determined automatically from conventional commits since the last tag.

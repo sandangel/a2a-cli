@@ -24,6 +24,7 @@ permissions:
   contents: write
   attestations: write
   id-token: write
+  packages: write
 
 on:
   workflow_dispatch:
@@ -217,9 +218,17 @@ jobs:
       upload_artifacts: true
       attest: true
 
+  # ── rust-crates ──────────────────────────────────────────────────────────────
+  publish-crates:
+    needs: plan
+    uses: ./.github/workflows/publish-crates.yml
+    with:
+      ref: ${{ needs.plan.outputs.tag }}
+      version: ${{ needs.plan.outputs.version }}
+
   # ── release ─────────────────────────────────────────────────────────────────
   release:
-    needs: [plan, build]
+    needs: [plan, build, publish-crates]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -255,6 +264,11 @@ jobs:
           path: artifacts/
           merge-multiple: true
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: rust-crates
+          path: artifacts/
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -274,18 +288,12 @@ jobs:
             $PRERELEASE_FLAG \
             artifacts/*
 
-  # ── publish-npm ─────────────────────────────────────────────────────────────
-  publish-crates:
-    needs: [plan, release]
-    uses: ./.github/workflows/publish-crates.yml
-    secrets: inherit
-    with:
-      version: ${{ needs.plan.outputs.version }}
-
+  # ── publish ─────────────────────────────────────────────────────────────────
   publish-npm:
     needs: [plan, release]
     uses: ./.github/workflows/publish-npm.yml
     secrets: inherit
     with:
+      ref: ${{ needs.plan.outputs.tag }}
       version: ${{ needs.plan.outputs.version }}
       npm_tag: ${{ needs.plan.outputs.npm_tag }}

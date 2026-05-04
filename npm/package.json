@@ -1,5 +1,5 @@
 {
-  "name": "a2a-protocol-cli",
+  "name": "@sandangel/a2a-protocol-cli",
   "description": "A2A CLI — interact with A2A protocol agents from the terminal",
   "version": "0.0.0",
   "license": "Apache-2.0",
@@ -23,11 +23,14 @@
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "a2a-protocol-cli-darwin-arm64": "0.0.0",
-    "a2a-protocol-cli-darwin-x64": "0.0.0",
-    "a2a-protocol-cli-linux-arm64": "0.0.0",
-    "a2a-protocol-cli-linux-x64": "0.0.0",
-    "a2a-protocol-cli-win32-x64": "0.0.0"
+    "@sandangel/a2a-protocol-cli-darwin-arm64": "0.0.0",
+    "@sandangel/a2a-protocol-cli-darwin-x64": "0.0.0",
+    "@sandangel/a2a-protocol-cli-linux-arm64": "0.0.0",
+    "@sandangel/a2a-protocol-cli-linux-x64": "0.0.0",
+    "@sandangel/a2a-protocol-cli-win32-x64": "0.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=18"

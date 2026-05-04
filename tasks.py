@@ -7,7 +7,7 @@ Local development tasks — run with: uv run inv <task>
   uv run inv fix          # fmt + clippy --fix
   uv run inv sync-npm-version --version=1.2.3
   uv run inv sync-cargo-version --version=1.2.3
-  uv run inv publish-crates --version=1.2.3
+  uv run inv package-crates --version=1.2.3
   uv run inv update-skills
   uv run inv install      # build release + copy to ~/.local/bin/a2a
   uv run inv clean        # cargo clean
@@ -17,9 +17,10 @@ Local development tasks — run with: uv run inv <task>
 import json
 import os
 import re
+import hashlib
 import shutil
+import tarfile
 import tempfile
-import time
 from pathlib import Path
 
 from invoke import task
@@ -37,6 +38,7 @@ NPM_PACKAGE_JSON = [
     Path("npm/packages/a2a-protocol-cli-linux-x64/package.json"),
     Path("npm/packages/a2a-protocol-cli-win32-x64/package.json"),
 ]
+CRATE_ARTIFACT_DIR = ROOT / "target" / "package-artifacts"
 
 
 def _replace_once(path, pattern, replacement, label):
@@ -165,6 +167,30 @@ def _skills_command():
     return "npx skills"
 
 
+def _iter_files(root, includes):
+    for include in includes:
+        path = root / include
+        if path.is_file():
+            yield path
+        elif path.is_dir():
+            yield from sorted(item for item in path.rglob("*") if item.is_file())
+
+
+def _write_crate_archive(package_dir, package_name, version, includes):
+    archive = CRATE_ARTIFACT_DIR / f"{package_name}-{version}.crate"
+    prefix = f"{package_name}-{version}"
+
+    with tarfile.open(archive, "w:gz") as tar:
+        for source in _iter_files(package_dir, includes):
+            tar.add(source, arcname=f"{prefix}/{source.relative_to(package_dir)}")
+
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    checksum = archive.with_suffix(archive.suffix + ".sha256")
+    checksum.write_text(f"{digest}  {archive.name}\n")
+    print(f"packaged {archive}")
+    print(f"wrote {checksum}")
+
+
 @task
 def build(c):
     """Dev build for the current host."""
@@ -226,7 +252,7 @@ def clean(c):
 
 @task
 def sync_cargo_version(c, version):
-    """Stamp VERSION into crates.io-published Cargo packages."""
+    """Stamp VERSION into Rust packages."""
     _sync_cargo_version_at(ROOT, version)
 
 
@@ -270,10 +296,8 @@ def update_skills(c):
 
 
 @task
-def publish_crates(c, version, dry_run=False):
-    """Publish crates from a temporary staging copy."""
-    dry_run = dry_run or os.environ.get("A2A_PUBLISH_CRATES_DRY_RUN") == "1"
-
+def package_crates(c, version, dry_run=False):
+    """Package Rust crate source archives into target/package-artifacts."""
     with tempfile.TemporaryDirectory() as stage:
         stage_repo = Path(stage) / "repo"
         shutil.copytree(ROOT, stage_repo, ignore=_publish_ignore)
@@ -281,16 +305,31 @@ def publish_crates(c, version, dry_run=False):
         _sync_cargo_version_at(stage_repo, version)
 
         with c.cd(str(stage_repo)):
+            c.run(f"cargo check -p {PKG} -p {COMPAT_PKG}", pty=True)
             if dry_run:
-                c.run(f"cargo check -p {PKG} -p {COMPAT_PKG}", pty=True)
                 c.run(f"cargo package -p {COMPAT_PKG} --allow-dirty --list >/dev/null", pty=True)
                 c.run(f"cargo package -p {PKG} --allow-dirty --list >/dev/null", pty=True)
                 return
 
-            c.run(f"cargo publish -p {COMPAT_PKG} --allow-dirty", pty=True)
-            # crates.io index propagation is eventually consistent.
-            time.sleep(30)
-            c.run(f"cargo publish -p {PKG} --allow-dirty", pty=True)
+        CRATE_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        _write_crate_archive(
+            stage_repo / "a2a-compat",
+            COMPAT_PKG,
+            version,
+            ["Cargo.toml", "src"],
+        )
+        _write_crate_archive(
+            stage_repo / "a2a-cli",
+            PKG,
+            version,
+            ["Cargo.toml", "Cargo.lock", "README.md", "build.rs", "proto", "src", "tests"],
+        )
+
+
+@task
+def publish_crates(c, version, dry_run=False):
+    """Compatibility alias for packaging Rust crates as GitHub artifacts."""
+    package_crates(c, version=version, dry_run=dry_run)
 
 
 @task

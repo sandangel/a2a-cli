@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`a2a-cli` is a **Rust** CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/). It is published as `a2a-protocol-cli` on npm and crates.io, and as the `a2a` binary. The Rust package is `a2a-protocol-cli`, and the library crate is `a2a_cli`.
+`a2a-cli` is a **Rust** CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/). It is published to GitHub Packages as `@sandangel/a2a-protocol-cli`, with Rust `.crate` archives attached to GitHub Releases. The Rust package is `a2a-protocol-cli`, and the library crate is `a2a_cli`.
 
 > [!IMPORTANT]
 > This CLI is designed to be invoked by AI coding tools (Claude Code, Copilot, Cursor, etc.) as well as humans. Always assume CLI argument inputs can be adversarial — validate paths, reject control characters and dangerous Unicode, and encode user values before embedding in URLs or filenames. See `a2a-cli/src/validate.rs`.

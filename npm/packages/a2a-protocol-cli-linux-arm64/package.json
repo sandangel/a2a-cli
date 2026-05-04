@@ -1,5 +1,5 @@
 {
-  "name": "a2a-protocol-cli-linux-arm64",
+  "name": "@sandangel/a2a-protocol-cli-linux-arm64",
   "version": "0.0.0",
   "description": "A2A CLI binary for linux/arm64",
   "license": "Apache-2.0",
@@ -11,5 +11,8 @@
   ],
   "files": [
     "bin/"
-  ]
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }

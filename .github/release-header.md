@@ -3,13 +3,13 @@
 ### npm (recommended)
 
 ```bash
-npm install -g a2a-protocol-cli
+npm install -g @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com
 ```
 
 ### Cargo
 
 ```bash
-cargo install a2a-protocol-cli
+cargo install --git https://github.com/sandangel/a2a-cli a2a-protocol-cli
 ```
 
 ### Direct download

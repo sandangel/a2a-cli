@@ -3,7 +3,7 @@
 //
 // Resolution order:
 //   1. A2A_BINARY_PATH env var (developer override / CI)
-//   2. Platform-specific optional dependency (e.g. a2a-protocol-cli-linux-x64)
+//   2. Platform-specific optional dependency (e.g. @sandangel/a2a-protocol-cli-linux-x64)
 //   3. `a2a` on PATH (for users who installed the binary separately)
 //
 // Run as postinstall to verify the binary resolves, and exported for bin.js.
@@ -17,11 +17,11 @@ const path = require('path');
 
 // Maps Node platform-arch → optional dependency package name.
 const PLATFORM_MAP = {
-  'darwin-arm64': 'a2a-protocol-cli-darwin-arm64',
-  'darwin-x64':   'a2a-protocol-cli-darwin-x64',
-  'linux-arm64':  'a2a-protocol-cli-linux-arm64',
-  'linux-x64':    'a2a-protocol-cli-linux-x64',
-  'win32-x64':    'a2a-protocol-cli-win32-x64',
+  'darwin-arm64': '@sandangel/a2a-protocol-cli-darwin-arm64',
+  'darwin-x64':   '@sandangel/a2a-protocol-cli-darwin-x64',
+  'linux-arm64':  '@sandangel/a2a-protocol-cli-linux-arm64',
+  'linux-x64':    '@sandangel/a2a-protocol-cli-linux-x64',
+  'win32-x64':    '@sandangel/a2a-protocol-cli-win32-x64',
 };
 
 function platformKey() {
@@ -115,7 +115,7 @@ function getBinaryPath() {
     `a2a binary not found for platform "${platform}".\n` +
     `Supported platforms: ${supported}\n\n` +
     `To fix:\n` +
-    `  - Reinstall:  npm install a2a-protocol-cli\n` +
+    `  - Reinstall:  npm install @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com\n` +
     `  - Or set:     A2A_BINARY_PATH=/path/to/a2a`
   );
 }
