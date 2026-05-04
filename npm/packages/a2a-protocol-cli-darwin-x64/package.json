@@ -1,5 +1,5 @@
 {
-  "name": "@rover/a2a-cli-darwin-x64",
+  "name": "a2a-protocol-cli-darwin-x64",
   "version": "0.0.0",
   "description": "A2A CLI binary for darwin/x64",
   "license": "Apache-2.0",
@@ -11,8 +11,5 @@
   ],
   "files": [
     "bin/"
-  ],
-  "publishConfig": {
-    "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release"
-  }
+  ]
 }

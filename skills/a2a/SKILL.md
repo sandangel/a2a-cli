@@ -2,7 +2,7 @@
 name: a2a
 description: "a2a-cli: A2A protocol CLI for sending messages to AI agents from coding tools."
 metadata:
-  package: a2a-cli
+  package: a2a-protocol-cli
   rust_crate: a2a_cli
   command: a2a
   openclaw:

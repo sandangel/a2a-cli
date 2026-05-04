@@ -5,14 +5,14 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 rust-version = "1.85"
-repository = "https://github.com/a2aproject/a2a-rs"
+repository = "https://github.com/sandangel/a2a-cli"
 
 # ── a2a-rs workspace deps (re-declared here so their { workspace = true }
 #    references resolve correctly when used as path deps from this workspace)
 [workspace.dependencies]
-# Internal a2a crates — paths relative to our root
+# A2A crates — paths relative to our root
 a2a        = { package = "a2a-lf",        path = "a2a-rs/a2a",        version = "0.2.4" }
 a2a-client = { package = "a2a-client-lf", path = "a2a-rs/a2a-client", version = "0.1.13" }
 a2a-server = { package = "a2a-server-lf", path = "a2a-rs/a2a-server", version = "0.2.6" }

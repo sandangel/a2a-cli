@@ -2,23 +2,32 @@
 
 `a2a-cli` provides the `a2a` command for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/).
 It is designed for humans and AI coding tools alike.
-The Rust package is `a2a-cli`, and the library crate is `a2a_cli`.
+The Rust package is `a2a-protocol-cli`, and the library crate is `a2a_cli`.
 
 ## Install
 
 ### npm (recommended)
 
 ```bash
-npm install -g @rover/a2a-cli --registry https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
+npm install -g a2a-protocol-cli
+```
+
+The npm package is a binary distribution for the `a2a` command. Use the Rust
+crate for programmatic integration.
+
+### Cargo
+
+```bash
+cargo install a2a-protocol-cli
 ```
 
 ### Direct download
 
-Download a pre-built binary from the [Releases](https://github.com/sg-genai/genai-cli/releases) page.
+Download a pre-built binary from the [Releases](https://github.com/sandangel/a2a-cli/releases) page.
 
 ```bash
 # Example: Linux x86_64
-curl -sLO https://github.com/sg-genai/genai-cli/releases/latest/download/a2a-x86_64-unknown-linux-gnu.tar.gz
+curl -sLO https://github.com/sandangel/a2a-cli/releases/latest/download/a2a-x86_64-unknown-linux-gnu.tar.gz
 tar -xzf a2a-x86_64-unknown-linux-gnu.tar.gz
 chmod +x a2a && sudo mv a2a /usr/local/bin/
 ```
@@ -28,9 +37,9 @@ chmod +x a2a && sudo mv a2a /usr/local/bin/
 Requires Rust 1.85+.
 
 ```bash
-git clone https://github.com/sg-genai/genai-cli.git
-cd genai-cli
-cargo build -p a2a-cli --release
+git clone https://github.com/sandangel/a2a-cli.git
+cd a2a-cli
+cargo build -p a2a-protocol-cli --release
 # binary: target/release/a2a
 ```
 
@@ -51,34 +60,62 @@ a2a completions zsh > ~/.zsh/completions/_a2a
 a2a completions fish > ~/.config/fish/completions/a2a.fish
 ```
 
+## Rust API
+
+Use the Rust crate directly when embedding A2A client behavior in another
+Rust application:
+
+```bash
+cargo add a2a-protocol-cli
+```
+
+```rust
+use a2a_cli::{Client, SendOptions};
+
+#[tokio::main]
+async fn main() -> a2a_cli::error::Result<()> {
+    let client = Client::new("https://agent.example.com")?;
+
+    let response = client
+        .send_with(
+            "What is 2+2?",
+            SendOptions::default().accept_output("text/plain"),
+        )
+        .await?;
+
+    println!("{response}");
+    Ok(())
+}
+```
+
 ## AI agent skills
 
 Install the `a2a` skill so your AI coding tool (Claude Code, Cursor, Copilot, etc.) knows how to use this CLI:
 
 ```bash
 # npx
-npx skills add sg-genai/genai-cli
+npx skills add sandangel/a2a-cli
 
 # bun
-bunx skills add sg-genai/genai-cli
+bunx skills add sandangel/a2a-cli
 ```
 
 To generate per-agent skills from live agent cards:
 
 ```bash
 a2a agent generate-skills           # all registered agents
-a2a agent generate-skills rover     # specific alias
+a2a agent generate-skills example   # specific alias
 ```
 
 ## Quick start
 
 ```bash
-# Check existing agents (a default may already be configured)
+# Check existing agents
 a2a agent list
 
-# Register an agent if needed
-a2a agent add rover https://genai.stargate.toyota/a2a/rover-agent
-a2a agent use rover
+# Register an agent
+a2a agent add example https://agent.example.com
+a2a agent use example
 
 # Authenticate
 a2a auth login
@@ -149,9 +186,9 @@ for headless / Docker environments.
 
 ```bash
 a2a auth login               # active agent
-a2a auth login --agent rover  # specific agent
+a2a auth login --agent example  # specific agent
 a2a auth status              # all agents
-a2a auth logout --agent rover
+a2a auth logout --agent example
 ```
 
 ## Environment variables
@@ -167,7 +204,7 @@ a2a auth logout --agent rover
 ## Acknowledgements
 
 `a2a-cli` is inspired by and built on patterns from [**gws**](https://github.com/googleworkspace/cli) — the Google Workspace CLI.
-Several internal modules (output formatting, credential store, atomic file writes) are shared directly from the `gws-cli` codebase, keeping the two tools consistent in behaviour and structure.
+Several shared modules (output formatting, credential store, atomic file writes) are included from the `gws-cli` codebase, keeping the two tools consistent in behaviour and structure.
 
 ## Contributing
 

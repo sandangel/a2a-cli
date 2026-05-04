@@ -35,10 +35,10 @@ jobs:
         # does not honour rustflags: "" above.
         env:
           RUSTFLAGS: ""
-        run: cargo clippy -p a2a-bin -p a2a-compat
+        run: cargo clippy -p a2a-protocol-cli -p a2a-protocol-compat
 
       - name: Test
-        run: cargo test -p a2a-bin
+        run: cargo test -p a2a-protocol-cli
 
       - name: Rustfmt
         uses: actions-rust-lang/rustfmt@v1
@@ -48,23 +48,6 @@ jobs:
       - name: YAML validation
         run: uvx pre-commit run check-yaml --all-files
 
-  version:
-    # Compute the dev version string: <git-tag>-dev.<short-sha>
-    # Only needed on main pushes (PRs don't publish).
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    outputs:
-      value: ${{ steps.compute.outputs.value }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - id: compute
-        run: |
-          GIT_VERSION=$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          echo "value=${GIT_VERSION}-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-
   build:
     permissions:
       contents: read
@@ -72,18 +55,5 @@ jobs:
       attestations: write
     uses: ./.github/workflows/build.yml
     with:
-      build_env: dev
       upload_artifacts: ${{ github.event_name == 'push' }}
       attest: ${{ github.event_name == 'push' }}
-
-  publish-npm:
-    # Only publish on main pushes, not PRs.
-    if: github.event_name == 'push'
-    needs: [version, build]
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/publish-npm.yml
-    with:
-      version: ${{ needs.version.outputs.value }}
-      npm_tag: dev

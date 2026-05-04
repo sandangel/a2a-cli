@@ -1,9 +1,16 @@
 [package]
-name = "a2a-compat"
-version = "0.1.0"
-description = "A2A v0.3 backward-compatibility layer for a2a-cli"
+name = "a2a-protocol-compat"
+version = "0.0.0"
+description = "A2A v0.3 backward-compatibility layer for a2a-protocol-cli"
 edition = "2024"
 license = "Apache-2.0"
+repository = "https://github.com/sandangel/a2a-cli"
+keywords = ["a2a", "agent2agent", "compatibility"]
+categories = ["api-bindings"]
+include = ["Cargo.toml", "src/**"]
+
+[lib]
+name = "a2a_compat"
 
 [lints.rust]
 warnings = "deny"
@@ -12,9 +19,9 @@ all = "deny"
 
 [dependencies]
 # A2A v1 types — normalize_card returns AgentCard
-a2a    = { package = "a2a-lf",  path = "../a2a-rs/a2a" }
+a2a    = { package = "a2a-lf", version = "0.2.4", path = "../a2a-rs/a2a" }
 # CLI arg structs — for From<&MessageCommand> impl on MessageParams
-a2acli = { package = "a2a-cli", path = "../a2a-rs/a2acli" }
+a2acli = { package = "a2a-cli", version = "0.1.0", path = "../a2a-rs/a2acli" }
 
 # HTTP
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-native-roots"] }

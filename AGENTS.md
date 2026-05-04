@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`a2a-cli` is a **Rust** CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/). It is published as `@rover/a2a-cli` on npm and as the `a2a` binary. The Rust package is `a2a-cli`, and the library crate is `a2a_cli`.
+`a2a-cli` is a **Rust** CLI for interacting with agents that implement the [A2A protocol](https://a2aproject.github.io/A2A/). It is published as `a2a-protocol-cli` on npm and crates.io, and as the `a2a` binary. The Rust package is `a2a-protocol-cli`, and the library crate is `a2a_cli`.
 
 > [!IMPORTANT]
 > This CLI is designed to be invoked by AI coding tools (Claude Code, Copilot, Cursor, etc.) as well as humans. Always assume CLI argument inputs can be adversarial — validate paths, reject control characters and dangerous Unicode, and encode user values before embedding in URLs or filenames. See `a2a-cli/src/validate.rs`.
@@ -38,8 +38,8 @@ Rust edition: 2024. Minimum Rust version: 1.85. Use `uv run inv` for all local t
 
 ```bash
 # Register an agent
-a2a agent add rover https://genai.stargate.toyota/a2a/rover-agent
-a2a agent use rover
+a2a agent add example https://agent.example.com
+a2a agent use example
 
 # Authenticate (auto-detects OAuth flow from agent card)
 a2a auth login
@@ -165,7 +165,7 @@ Each registered agent alias has its own OAuth config and token:
 2. **Auth** — OAuth flow triggered from public card's declared schemes.
 3. **Extended card** (`/extendedAgentCard`) — fetched after auth when `capabilities.extendedAgentCard: true`.
 
-Both A2A v1.0 and v0.3 agent card formats are handled transparently via `a2a_compat::is_v03()` and `a2a_compat::normalize_card()` in the `a2a-compat` crate.
+Both A2A v1.0 and v0.3 agent card formats are handled transparently via `a2a_compat::is_v03()` and `a2a_compat::normalize_card()` in the `a2a-protocol-compat` package.
 
 ### A2A SDK
 
@@ -272,7 +272,6 @@ Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, pl
 | `A2A_CLIENT_SECRET` | Client secret for Client Credentials OAuth flow |
 | `A2A_CONFIG_DIR` | Override config directory, defaulting to `~/.config/a2a-cli` |
 | `A2A_BINARY_PATH` | Override binary path (for npm wrapper) |
-| `BUILD_ENV` | `dev` / `stg` / prod (sets default host at compile time) |
 
 ## Shell Completions
 

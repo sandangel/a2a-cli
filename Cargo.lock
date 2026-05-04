@@ -3,54 +3,6 @@
 version = 4
 
 [[package]]
-name = "a2a-bin"
-version = "0.0.0"
-dependencies = [
- "a2a-cli",
- "a2a-client-lf",
- "a2a-compat",
- "a2a-lf",
- "a2a-server-lf",
- "aes-gcm",
- "anyhow",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "clap",
- "clap_complete",
- "dirs",
- "futures",
- "google-workspace",
- "indicatif",
- "jaq-core",
- "jaq-json",
- "jaq-std",
- "keyring",
- "oauth2",
- "open",
- "openssl",
- "percent-encoding",
- "prost-reflect",
- "prost-types",
- "protoc-bin-vendored",
- "rand 0.8.5",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "serial_test",
- "sha2 0.11.0",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "zeroize",
-]
-
-[[package]]
 name = "a2a-cli"
 version = "0.1.0"
 dependencies = [
@@ -87,21 +39,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "a2a-compat"
-version = "0.1.0"
-dependencies = [
- "a2a-cli",
- "a2a-lf",
- "futures",
- "reqwest",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "uuid",
-]
-
-[[package]]
 name = "a2a-lf"
 version = "0.2.4"
 dependencies = [
@@ -129,6 +66,68 @@ dependencies = [
  "serde_json",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "a2a-protocol-cli"
+version = "0.0.0"
+dependencies = [
+ "a2a-cli",
+ "a2a-client-lf",
+ "a2a-lf",
+ "a2a-protocol-compat",
+ "a2a-server-lf",
+ "aes-gcm",
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "clap",
+ "clap_complete",
+ "dirs",
+ "futures",
+ "indicatif",
+ "jaq-core",
+ "jaq-json",
+ "jaq-std",
+ "keyring",
+ "oauth2",
+ "open",
+ "openssl",
+ "percent-encoding",
+ "prost-reflect",
+ "prost-types",
+ "protoc-bin-vendored",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "a2a-protocol-compat"
+version = "0.0.0"
+dependencies = [
+ "a2a-cli",
+ "a2a-lf",
+ "futures",
+ "reqwest",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]
@@ -913,22 +912,6 @@ checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
 dependencies = [
  "opaque-debug",
  "polyval",
-]
-
-[[package]]
-name = "google-workspace"
-version = "0.22.5"
-dependencies = [
- "anyhow",
- "percent-encoding",
- "reqwest",
- "serde",
- "serde_json",
- "serial_test",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
 ]
 
 [[package]]

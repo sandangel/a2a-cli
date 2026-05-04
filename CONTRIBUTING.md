@@ -29,6 +29,7 @@ uv run inv test               # run all tests
 uv run inv test --filter=yaml # run tests matching a name
 uv run inv lint               # fmt check + clippy
 uv run inv fix                # auto-fix fmt + clippy
+uv run inv update-skills      # regenerate skills/a2a and update .agents/skills
 uv run inv install            # dev build + install to ~/.local/bin/a2a
 uv run inv install-release    # release build + install to ~/.local/bin/a2a
 uv run inv version            # print the git-derived version
@@ -44,8 +45,8 @@ The repo uses [pre-commit](https://pre-commit.com/) to enforce quality gates loc
 | Hook | What it checks |
 |------|---------------|
 | `check-yaml` | YAML syntax on all `.yml`/`.yaml` files |
-| `fmt` | `cargo fmt --check` on `a2a-cli` and `a2a-compat` |
-| `clippy` | `cargo clippy -D warnings` on `a2a-cli` and `a2a-compat` |
+| `fmt` | `cargo fmt --check` on `a2a-protocol-cli` and `a2a-protocol-compat` |
+| `clippy` | `cargo clippy -D warnings` on `a2a-protocol-cli` and `a2a-protocol-compat` |
 
 Hooks run automatically on `git commit`. To run them manually:
 
@@ -70,7 +71,7 @@ pre-commit run --all-files
    - YAML validation
    - Rustfmt check
 
-4. **Code review** — at least one approval from `@sg-genai/wovey-genai-repo-admins` is required (enforced by CODEOWNERS).
+4. **Code review** — at least one maintainer approval is required before merging.
 
 ## Releasing
 
@@ -80,6 +81,17 @@ Releases are cut manually from the Actions tab:
 2. Choose `rc` to cut a pre-release, or `release` to promote the latest RC to a stable release.
    - `rc`: tags HEAD of `main` as `v{next}-rc.{N}`, publishes a pre-release on GitHub.
    - `release`: retags the latest RC commit as `v{next}` (no new code), publishes a stable release and pushes to npm.
+
+Publishing uses the `CARGO_REGISTRY_TOKEN` repository secret for crates.io and
+the `NPM_TOKEN` repository secret for npmjs.org with npm provenance.
+
+Release helpers are Invoke tasks:
+
+```bash
+uv run inv sync-cargo-version --version=1.2.3
+uv run inv sync-npm-version --version=1.2.3
+uv run inv publish-crates --version=1.2.3 --dry-run
+```
 
 The next version is determined automatically from conventional commits since the last tag.
 
@@ -98,7 +110,7 @@ a2a-cli/        main CLI source crate directory
 a2a-compat/     A2A v0.3 backward-compatibility layer
 a2a-rs/         A2A Rust SDK (read-only git submodule)
 gws-cli/        shared modules: fs_util, output, credential_store, validate (read-only)
-npm/            npm wrapper package (@rover/a2a-cli)
+npm/            npm wrapper package (a2a-protocol-cli)
 ```
 
 > **Note:** `a2a-rs/` and `gws-cli/` are read-only references. Do not modify them.

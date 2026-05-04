@@ -11,15 +11,6 @@ use prost_reflect::{Cardinality, DescriptorPool, FieldDescriptor, Kind, MessageD
 use serde_json::{Map, Value, json};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // BUILD_ENV → compile-time default host + version tag
-    let build_env = std::env::var("BUILD_ENV").unwrap_or_default();
-    let host = match build_env.as_str() {
-        "dev" => "dev.genai.stargate.toyota",
-        "stg" => "stg.genai.stargate.toyota",
-        _ => "genai.stargate.toyota",
-    };
-    println!("cargo:rustc-env=A2A_DEFAULT_HOST={host}");
-
     // Resolve version from the nearest vX.Y.Z git tag so Cargo.toml can stay
     // at a placeholder (0.0.0) and never fall out of sync with released tags.
     let git_version = std::process::Command::new("git")
@@ -32,26 +23,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|s| !s.is_empty());
     let pkg_version =
         git_version.unwrap_or_else(|| std::env::var("CARGO_PKG_VERSION").unwrap_or_default());
-    let build_version = if build_env == "dev" {
-        let sha = std::env::var("GITHUB_SHA")
-            .map(|s| s[..7].to_string())
-            .unwrap_or_else(|_| "local".to_string());
-        format!("{pkg_version}-dev.{sha}")
-    } else {
-        pkg_version
-    };
-    println!("cargo:rustc-env=A2A_BUILD_VERSION={build_version}");
-    println!("cargo:rerun-if-env-changed=BUILD_ENV");
-    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+    println!("cargo:rustc-env=A2A_BUILD_VERSION={pkg_version}");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs");
 
     // Proto → JSON Schema
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
-    let proto_root = PathBuf::from("../a2a-rs/a2a-pb/proto");
+    let proto_root = PathBuf::from("proto");
     let descriptor_path = out_dir.join("a2a-descriptor.bin");
 
-    println!("cargo:rerun-if-changed=../a2a-rs/a2a-pb/proto/a2a.proto");
+    println!("cargo:rerun-if-changed=proto/a2a.proto");
+    println!("cargo:rerun-if-changed=proto/google/api/annotations.proto");
+    println!("cargo:rerun-if-changed=proto/google/api/client.proto");
+    println!("cargo:rerun-if-changed=proto/google/api/field_behavior.proto");
 
     let protoc = protoc_bin_vendored::protoc_bin_path()?;
     let status = std::process::Command::new(protoc)

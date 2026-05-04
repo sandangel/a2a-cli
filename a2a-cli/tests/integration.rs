@@ -593,7 +593,7 @@ mod rename_regression {
             );
         }
 
-        assert!(README.contains("@rover/a2a-cli"));
+        assert!(README.contains("npm install -g a2a-protocol-cli"));
         assert!(AGENTS.contains("skills/a2a/SKILL.md"));
         assert!(CONTRIBUTING.contains("a2a-cli/"));
     }

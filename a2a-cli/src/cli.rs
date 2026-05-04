@@ -18,7 +18,7 @@ use crate::commands::{
 #[command(
     name = "a2a",
     version = env!("A2A_BUILD_VERSION"),
-    about = "a2a-cli — send messages to A2A agents from AI coding tools\n\nQuick start:\n  a2a agent list                        # see registered agents\n  a2a send \"Summarise the latest PR\"     # send to active agent\n  a2a --agent rover send \"Status?\"       # send to named agent\n  a2a --all send \"Health check?\"         # all agents in parallel"
+    about = "a2a-cli — send messages to A2A agents from AI coding tools\n\nQuick start:\n  a2a agent list                         # see registered agents\n  a2a send \"Summarise the latest PR\"      # send to active agent\n  a2a --agent example send \"Status?\"      # send to named agent\n  a2a --all send \"Health check?\"          # all agents in parallel"
 )]
 pub struct Cli {
     #[command(flatten)]

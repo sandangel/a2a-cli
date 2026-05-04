@@ -1,4 +1,4 @@
-# Release workflow for @rover/a2a-cli
+# Release workflow for a2a-cli
 #
 # Triggered manually from main: Actions → Release → Run workflow
 #
@@ -54,7 +54,6 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       prev_tag: ${{ steps.meta.outputs.prev_tag }}
-      build_env: ${{ steps.meta.outputs.build_env }}
       npm_tag: ${{ steps.meta.outputs.npm_tag }}
     steps:
       - uses: actions/checkout@v6
@@ -192,11 +191,9 @@ jobs:
           echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
 
           if [[ "$VERSION" == *-rc.* ]]; then
-            echo "build_env=stg" >> "$GITHUB_OUTPUT"
-            echo "npm_tag=next"  >> "$GITHUB_OUTPUT"
+            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
           else
-            echo "build_env=prod"   >> "$GITHUB_OUTPUT"
-            echo "npm_tag=latest"   >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
           echo "resolved: tag=${TAG}, prev_tag=${PREV}"
@@ -216,7 +213,6 @@ jobs:
     needs: plan
     uses: ./.github/workflows/build.yml
     with:
-      build_env: ${{ needs.plan.outputs.build_env }}
       ref: ${{ needs.plan.outputs.tag }}
       upload_artifacts: true
       attest: true
@@ -279,9 +275,17 @@ jobs:
             artifacts/*
 
   # ── publish-npm ─────────────────────────────────────────────────────────────
+  publish-crates:
+    needs: [plan, release]
+    uses: ./.github/workflows/publish-crates.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.plan.outputs.version }}
+
   publish-npm:
     needs: [plan, release]
     uses: ./.github/workflows/publish-npm.yml
+    secrets: inherit
     with:
       version: ${{ needs.plan.outputs.version }}
       npm_tag: ${{ needs.plan.outputs.npm_tag }}

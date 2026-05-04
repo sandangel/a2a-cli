@@ -146,10 +146,10 @@ local_test/
 terraform*.log
 tfplan
 
-# Wovey Frontend Modules
+# Frontend modules
 **/node_modules
 
-# Artifactory creds
+# Local credentials
 **/.netrc
 
 **/.devenv
@@ -174,3 +174,4 @@ vendor
 # Per-agent skills are generated on demand — not committed
 /skills/*/
 !/skills/a2a/
+/a2a-cli/skills/

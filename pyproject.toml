@@ -1,7 +1,7 @@
 [project]
-name = "genai-cli"
+name = "a2a-cli"
 version = "0.1.0"
-description = "Add your description here"
+description = "Developer tooling for a2a-cli"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []

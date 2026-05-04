@@ -1,5 +1,4 @@
-//! Input validation — thin wrappers over google_workspace::validate,
-//! plus A2A-specific checks.
+//! Input validation for A2A-specific CLI and library boundaries.
 //!
 //! Validated newtypes (`AgentAlias`, `AgentUrl`) encode the invariant in the
 //! type: once constructed, callers don't need to re-validate.
@@ -7,7 +6,21 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{A2aCliError, Result};
-pub use google_workspace::validate::is_dangerous_unicode;
+
+/// Returns `true` for Unicode characters that are dangerous in terminal
+/// output or resource identifiers but are not caught by `char::is_control()`.
+pub fn is_dangerous_unicode(c: char) -> bool {
+    matches!(c,
+        // zero-width: ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP
+        '\u{200B}'..='\u{200D}' | '\u{FEFF}' |
+        // bidi: LRE, RLE, PDF, LRO, RLO
+        '\u{202A}'..='\u{202E}' |
+        // line / paragraph separators
+        '\u{2028}'..='\u{2029}' |
+        // directional isolates: LRI, RLI, FSI, PDI
+        '\u{2066}'..='\u{2069}'
+    )
+}
 
 // ── Validated newtypes ────────────────────────────────────────────────
 

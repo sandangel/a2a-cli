@@ -1,28 +1,33 @@
 {
-  "name": "@rover/a2a-cli",
+  "name": "a2a-protocol-cli",
   "description": "A2A CLI — interact with A2A protocol agents from the terminal",
   "version": "0.0.0",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sg-genai/genai-cli.git"
+    "url": "https://github.com/sandangel/a2a-cli.git"
   },
-  "homepage": "https://github.com/sg-genai/genai-cli",
+  "homepage": "https://github.com/sandangel/a2a-cli",
   "bugs": {
-    "url": "https://github.com/sg-genai/genai-cli/issues"
+    "url": "https://github.com/sandangel/a2a-cli/issues"
   },
   "bin": {
     "a2a": "bin.js"
   },
+  "files": [
+    "bin.js",
+    "install.js",
+    "package.json"
+  ],
   "scripts": {
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "@rover/a2a-cli-darwin-arm64": "0.0.0",
-    "@rover/a2a-cli-darwin-x64": "0.0.0",
-    "@rover/a2a-cli-linux-arm64": "0.0.0",
-    "@rover/a2a-cli-linux-x64": "0.0.0",
-    "@rover/a2a-cli-win32-x64": "0.0.0"
+    "a2a-protocol-cli-darwin-arm64": "0.0.0",
+    "a2a-protocol-cli-darwin-x64": "0.0.0",
+    "a2a-protocol-cli-linux-arm64": "0.0.0",
+    "a2a-protocol-cli-linux-x64": "0.0.0",
+    "a2a-protocol-cli-win32-x64": "0.0.0"
   },
   "engines": {
     "node": ">=18"
@@ -38,9 +43,6 @@
     "streaming",
     "rust"
   ],
-  "publishConfig": {
-    "registry": "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/"
-  },
   "supportedPlatforms": {
     "aarch64-apple-darwin": {
       "artifact": "a2a-aarch64-apple-darwin.tar.gz",

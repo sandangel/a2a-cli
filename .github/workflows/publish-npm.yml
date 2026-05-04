@@ -21,15 +21,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Authenticate to Artifactory
-        id: auth
-        uses: sg-innersource/artifactory-oidc-access@v2.0.12
-
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
-          registry-url: https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/
-          scope: "@rover"
+          registry-url: https://registry.npmjs.org
+
+      - uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Verify npm token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is required to publish to npmjs.org"
+            exit 1
+          fi
+        shell: bash
 
       - uses: actions/download-artifact@v8
         with:
@@ -39,39 +46,39 @@ jobs:
 
       - name: Extract binaries into platform packages
         run: |
-          mkdir -p npm/packages/@rover/a2a-cli-darwin-arm64/bin
-          tar xzf artifacts/a2a-aarch64-apple-darwin.tar.gz -C npm/packages/@rover/a2a-cli-darwin-arm64/bin ./a2a
-          chmod +x npm/packages/@rover/a2a-cli-darwin-arm64/bin/a2a
+          mkdir -p npm/packages/a2a-protocol-cli-darwin-arm64/bin
+          tar xzf artifacts/a2a-aarch64-apple-darwin.tar.gz -C npm/packages/a2a-protocol-cli-darwin-arm64/bin ./a2a
+          chmod +x npm/packages/a2a-protocol-cli-darwin-arm64/bin/a2a
 
-          mkdir -p npm/packages/@rover/a2a-cli-darwin-x64/bin
-          tar xzf artifacts/a2a-x86_64-apple-darwin.tar.gz -C npm/packages/@rover/a2a-cli-darwin-x64/bin ./a2a
-          chmod +x npm/packages/@rover/a2a-cli-darwin-x64/bin/a2a
+          mkdir -p npm/packages/a2a-protocol-cli-darwin-x64/bin
+          tar xzf artifacts/a2a-x86_64-apple-darwin.tar.gz -C npm/packages/a2a-protocol-cli-darwin-x64/bin ./a2a
+          chmod +x npm/packages/a2a-protocol-cli-darwin-x64/bin/a2a
 
-          mkdir -p npm/packages/@rover/a2a-cli-linux-arm64/bin
-          tar xzf artifacts/a2a-aarch64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/a2a-cli-linux-arm64/bin ./a2a
-          chmod +x npm/packages/@rover/a2a-cli-linux-arm64/bin/a2a
+          mkdir -p npm/packages/a2a-protocol-cli-linux-arm64/bin
+          tar xzf artifacts/a2a-aarch64-unknown-linux-gnu.tar.gz -C npm/packages/a2a-protocol-cli-linux-arm64/bin ./a2a
+          chmod +x npm/packages/a2a-protocol-cli-linux-arm64/bin/a2a
 
-          mkdir -p npm/packages/@rover/a2a-cli-linux-x64/bin
-          tar xzf artifacts/a2a-x86_64-unknown-linux-gnu.tar.gz -C npm/packages/@rover/a2a-cli-linux-x64/bin ./a2a
-          chmod +x npm/packages/@rover/a2a-cli-linux-x64/bin/a2a
+          mkdir -p npm/packages/a2a-protocol-cli-linux-x64/bin
+          tar xzf artifacts/a2a-x86_64-unknown-linux-gnu.tar.gz -C npm/packages/a2a-protocol-cli-linux-x64/bin ./a2a
+          chmod +x npm/packages/a2a-protocol-cli-linux-x64/bin/a2a
 
-          mkdir -p npm/packages/@rover/a2a-cli-win32-x64/bin
-          unzip -j artifacts/a2a-x86_64-pc-windows-gnu.zip "*/a2a.exe" -d npm/packages/@rover/a2a-cli-win32-x64/bin/
+          mkdir -p npm/packages/a2a-protocol-cli-win32-x64/bin
+          unzip -j artifacts/a2a-x86_64-pc-windows-gnu.zip "*/a2a.exe" -d npm/packages/a2a-protocol-cli-win32-x64/bin/
 
       - name: Set version in all packages
-        run: scripts/sync-npm-version "${{ inputs.version }}"
+        run: uv run inv sync-npm-version --version="${{ inputs.version }}"
 
       - name: Publish platform packages
         env:
-          NODE_AUTH_TOKEN: ${{ steps.auth.outputs.artifactory-token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           NPM_TAG="${{ inputs.npm_tag }}"
-          for pkg in npm/packages/@rover/a2a-cli-darwin-arm64 npm/packages/@rover/a2a-cli-darwin-x64 npm/packages/@rover/a2a-cli-linux-arm64 npm/packages/@rover/a2a-cli-linux-x64 npm/packages/@rover/a2a-cli-win32-x64; do
-            npm publish "$pkg" --tag "${NPM_TAG}"
+          for pkg in npm/packages/a2a-protocol-cli-darwin-arm64 npm/packages/a2a-protocol-cli-darwin-x64 npm/packages/a2a-protocol-cli-linux-arm64 npm/packages/a2a-protocol-cli-linux-x64 npm/packages/a2a-protocol-cli-win32-x64; do
+            npm publish "$pkg" --tag "${NPM_TAG}" --provenance
           done
 
       - name: Publish main package
         working-directory: npm
-        run: npm publish --tag "${{ inputs.npm_tag }}"
+        run: npm publish --tag "${{ inputs.npm_tag }}" --provenance
         env:
-          NODE_AUTH_TOKEN: ${{ steps.auth.outputs.artifactory-token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

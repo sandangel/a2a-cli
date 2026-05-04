@@ -1,2 +1,0 @@
-[install.scopes]
-"@rover" = { url = "https://artifactory.stargate.toyota/artifactory/api/npm/rover-npm-release/" }

@@ -3,10 +3,6 @@ name: Build
 on:
   workflow_call:
     inputs:
-      build_env:
-        description: "BUILD_ENV value (dev | stg | prod)"
-        required: true
-        type: string
       ref:
         description: "Git ref to build (default: caller ref)"
         required: false
@@ -75,10 +71,6 @@ jobs:
           cache-workspace-crates: true
           cache-key: ${{ matrix.target }}
 
-      - name: Authenticate to Artifactory
-        if: matrix.cross == true
-        uses: sg-innersource/artifactory-oidc-access@v2.0.12
-
       - name: Cache cross binary
         if: matrix.cross == true
         id: cache-cross
@@ -93,7 +85,6 @@ jobs:
 
       - name: Build
         env:
-          BUILD_ENV: ${{ inputs.build_env }}
           # Mount only the registry/git caches (not the full cargo home) so
           # Swatinem/rust-cache's downloads are reused inside the Docker
           # container without triggering flock() failures on the GHA filesystem.
@@ -102,9 +93,9 @@ jobs:
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p 'a2a-bin' --locked
+            cross build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
           else
-            cargo build --release --target ${{ matrix.target }} -p 'a2a-bin' --locked
+            cargo build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
           fi
         shell: bash
 

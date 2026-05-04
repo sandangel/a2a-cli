@@ -5,16 +5,164 @@ Local development tasks — run with: uv run inv <task>
   uv run inv test         # run all tests
   uv run inv lint         # fmt check + clippy
   uv run inv fix          # fmt + clippy --fix
+  uv run inv sync-npm-version --version=1.2.3
+  uv run inv sync-cargo-version --version=1.2.3
+  uv run inv publish-crates --version=1.2.3
+  uv run inv update-skills
   uv run inv install      # build release + copy to ~/.local/bin/a2a
   uv run inv clean        # cargo clean
   uv run inv -l           # list all tasks
 """
 
+import json
+import os
+import re
+import shutil
+import tempfile
+import time
+from pathlib import Path
+
 from invoke import task
 
-PKG = "a2a-bin"
+ROOT = Path(__file__).resolve().parent
+PKG = "a2a-protocol-cli"
+COMPAT_PKG = "a2a-protocol-compat"
 BIN = "target/debug/a2a"
 RELEASE_BIN = "target/release/a2a"
+NPM_PACKAGE_JSON = [
+    Path("npm/package.json"),
+    Path("npm/packages/a2a-protocol-cli-darwin-arm64/package.json"),
+    Path("npm/packages/a2a-protocol-cli-darwin-x64/package.json"),
+    Path("npm/packages/a2a-protocol-cli-linux-arm64/package.json"),
+    Path("npm/packages/a2a-protocol-cli-linux-x64/package.json"),
+    Path("npm/packages/a2a-protocol-cli-win32-x64/package.json"),
+]
+
+
+def _replace_once(path, pattern, replacement, label):
+    text = path.read_text()
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+    if count != 1:
+        raise RuntimeError(f"could not update {label} in {path}")
+    path.write_text(updated)
+
+
+def _sync_cargo_version_at(root, version):
+    compat_toml = root / "a2a-compat" / "Cargo.toml"
+    cli_toml = root / "a2a-cli" / "Cargo.toml"
+
+    print(f"stamping Cargo packages with {version}")
+
+    _replace_once(
+        compat_toml,
+        r'(\[package\]\s+name = "a2a-protocol-compat"\s+version = ")[^"]+(")',
+        lambda match: f"{match.group(1)}{version}{match.group(2)}",
+        "a2a-protocol-compat package version",
+    )
+    _replace_once(
+        cli_toml,
+        r'(\[package\]\s+name = "a2a-protocol-cli"\s+version = ")[^"]+(")',
+        lambda match: f"{match.group(1)}{version}{match.group(2)}",
+        "a2a-protocol-cli package version",
+    )
+    _replace_once(
+        cli_toml,
+        (
+            r'(a2a-compat = \{ package = "a2a-protocol-compat", version = ")'
+            r'[^"]+(", path = "\.\./a2a-compat" \})'
+        ),
+        lambda match: f"{match.group(1)}{version}{match.group(2)}",
+        "a2a-protocol-compat dependency version",
+    )
+
+    print("  stamped a2a-protocol-compat")
+    print("  stamped a2a-protocol-cli")
+
+
+def _publish_ignore(path, names):
+    current = Path(path).resolve()
+    ignored = set()
+
+    if current == ROOT:
+        ignored.update({".git", ".venv", "target"}.intersection(names))
+    elif current == ROOT / "a2a-cli":
+        ignored.update({"skills"}.intersection(names))
+
+    return ignored
+
+
+def _vendor_publish_modules(stage_repo):
+    vendored_modules = [
+        (
+            ROOT / "gws-cli/crates/google-workspace-cli/src/fs_util.rs",
+            stage_repo / "a2a-cli/src/fs_util.rs",
+        ),
+        (
+            ROOT / "gws-cli/crates/google-workspace-cli/src/formatter.rs",
+            stage_repo / "a2a-cli/src/formatter.rs",
+        ),
+    ]
+    for source, destination in vendored_modules:
+        shutil.copy2(source, destination)
+
+    lib_rs = stage_repo / "a2a-cli/src/lib.rs"
+    text = lib_rs.read_text()
+    replacements = [
+        (
+            """#[rustfmt::skip]
+#[allow(clippy::collapsible_if)]
+#[path = "../../gws-cli/crates/google-workspace-cli/src/fs_util.rs"]
+pub mod fs_util;""",
+            """#[allow(clippy::collapsible_if)]
+pub mod fs_util;""",
+        ),
+        (
+            """#[rustfmt::skip]
+#[allow(clippy::should_implement_trait, clippy::collapsible_if)]
+#[path = "../../gws-cli/crates/google-workspace-cli/src/formatter.rs"]
+pub mod formatter;""",
+            """#[allow(clippy::should_implement_trait, clippy::collapsible_if)]
+pub mod formatter;""",
+        ),
+    ]
+
+    for old, new in replacements:
+        if old not in text:
+            raise RuntimeError(f"could not rewrite vendored module declaration in {lib_rs}")
+        text = text.replace(old, new, 1)
+
+    lib_rs.write_text(text)
+
+
+def _mark_skill_internal(path):
+    text = path.read_text()
+    if re.search(r"(?m)^\s*internal:\s*true\s*$", text):
+        return False
+    if not text.startswith("---\n"):
+        return False
+
+    frontmatter, sep, body = text[len("---\n") :].partition("---\n")
+    if not sep:
+        return False
+
+    lines = frontmatter.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if line == "metadata:\n":
+            lines.insert(index + 1, "  internal: true\n")
+            path.write_text("---\n" + "".join(lines) + sep + body)
+            return True
+
+    if frontmatter and not frontmatter.endswith("\n"):
+        frontmatter += "\n"
+    frontmatter += "metadata:\n  internal: true\n"
+    path.write_text("---\n" + frontmatter + sep + body)
+    return True
+
+
+def _skills_command():
+    if shutil.which("bunx"):
+        return "bunx skills"
+    return "npx skills"
 
 
 @task
@@ -41,21 +189,20 @@ def test(c, filter=""):
 @task
 def lint(c):
     """Check formatting and run clippy."""
-    c.run(f"cargo fmt -p a2a-bin -- --check", pty=True)
-    c.run(f"cargo clippy -p '{PKG}' -p a2a-compat -- -D warnings", pty=True)
+    c.run(f"cargo fmt -p '{PKG}' -p '{COMPAT_PKG}' -- --check", pty=True)
+    c.run(f"cargo clippy -p '{PKG}' -p '{COMPAT_PKG}' -- -D warnings", pty=True)
 
 
 @task
 def fix(c):
     """Auto-fix formatting and clippy lints."""
-    c.run("cargo fmt -p a2a-bin", pty=True)
-    c.run(f"cargo clippy -p '{PKG}' -p a2a-compat --fix --allow-dirty -- -D warnings", pty=True)
+    c.run(f"cargo fmt -p '{PKG}' -p '{COMPAT_PKG}'", pty=True)
+    c.run(f"cargo clippy -p '{PKG}' -p '{COMPAT_PKG}' --fix --allow-dirty -- -D warnings", pty=True)
 
 
 @task(pre=[build])
 def install(c, dest="~/.local/bin"):
     """Build (dev) and install the binary to dest (default: ~/.local/bin)."""
-    import os
     dest = os.path.expanduser(dest)
     os.makedirs(dest, exist_ok=True)
     c.run(f"cp {BIN} {dest}/a2a")
@@ -65,7 +212,6 @@ def install(c, dest="~/.local/bin"):
 @task(pre=[release])
 def install_release(c, dest="~/.local/bin"):
     """Build (release) and install the binary to dest (default: ~/.local/bin)."""
-    import os
     dest = os.path.expanduser(dest)
     os.makedirs(dest, exist_ok=True)
     c.run(f"cp {RELEASE_BIN} {dest}/a2a")
@@ -76,6 +222,75 @@ def install_release(c, dest="~/.local/bin"):
 def clean(c):
     """Remove build artifacts."""
     c.run("cargo clean", pty=True)
+
+
+@task
+def sync_cargo_version(c, version):
+    """Stamp VERSION into crates.io-published Cargo packages."""
+    _sync_cargo_version_at(ROOT, version)
+
+
+@task
+def sync_npm_version(c, version):
+    """Stamp VERSION into all npm package.json files."""
+    print(f"stamping npm packages with {version}")
+
+    for package_path in NPM_PACKAGE_JSON:
+        path = ROOT / package_path
+        package = json.loads(path.read_text())
+        package["version"] = version
+
+        optional_dependencies = package.get("optionalDependencies")
+        if optional_dependencies:
+            for dependency in optional_dependencies:
+                optional_dependencies[dependency] = version
+
+        path.write_text(json.dumps(package, indent=2) + "\n")
+        print(f"  stamped {package_path}")
+
+
+@task
+def update_skills(c):
+    """Regenerate public skills and update repo-local agent skills."""
+    print("Regenerating skills/a2a/SKILL.md...")
+    c.run(f"cargo run -p '{PKG}' -- generate-skills", pty=True)
+
+    skills_cmd = _skills_command()
+    print(f"Updating .agents/skills/ with {skills_cmd}...")
+    c.run(f"{skills_cmd} update --yes", pty=True)
+
+    print("Marking .agents/skills/ as internal...")
+    updated = 0
+    for path in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md")):
+        if _mark_skill_internal(path):
+            print(f"  marked: {path.relative_to(ROOT)}")
+            updated += 1
+
+    print(f"Done. {updated} file(s) updated.")
+
+
+@task
+def publish_crates(c, version, dry_run=False):
+    """Publish crates from a temporary staging copy."""
+    dry_run = dry_run or os.environ.get("A2A_PUBLISH_CRATES_DRY_RUN") == "1"
+
+    with tempfile.TemporaryDirectory() as stage:
+        stage_repo = Path(stage) / "repo"
+        shutil.copytree(ROOT, stage_repo, ignore=_publish_ignore)
+        _vendor_publish_modules(stage_repo)
+        _sync_cargo_version_at(stage_repo, version)
+
+        with c.cd(str(stage_repo)):
+            if dry_run:
+                c.run(f"cargo check -p {PKG} -p {COMPAT_PKG}", pty=True)
+                c.run(f"cargo package -p {COMPAT_PKG} --allow-dirty --list >/dev/null", pty=True)
+                c.run(f"cargo package -p {PKG} --allow-dirty --list >/dev/null", pty=True)
+                return
+
+            c.run(f"cargo publish -p {COMPAT_PKG} --allow-dirty", pty=True)
+            # crates.io index propagation is eventually consistent.
+            time.sleep(30)
+            c.run(f"cargo publish -p {PKG} --allow-dirty", pty=True)
 
 
 @task

@@ -13,7 +13,7 @@
 //! Only `a2a auth login` is skipped — it requires an interactive browser OAuth flow.
 //!
 //! DocFixture starts three V1 mock servers and pre-registers them as the
-//! agent aliases used across all three docs (rover, team-a, team-b).
+//! agent aliases used across all three docs (example, team-a, team-b).
 
 mod common;
 
@@ -32,7 +32,7 @@ const AGENTS: &str = include_str!("../../AGENTS.md");
 struct DocFixture {
     config_dir: TempDir,
     skills_dir: TempDir,
-    rover: MockServer,
+    example: MockServer,
     team_a: MockServer,
     team_b: MockServer,
 }
@@ -41,26 +41,26 @@ impl DocFixture {
     async fn setup() -> Self {
         let config_dir = tempfile::tempdir().expect("config tempdir");
         let skills_dir = tempfile::tempdir().expect("skills tempdir");
-        let rover = MockServer::start(MockVariant::V1).await;
+        let example = MockServer::start(MockVariant::V1).await;
         let team_a = MockServer::start(MockVariant::V1).await;
         let team_b = MockServer::start(MockVariant::V1).await;
 
         let fix = DocFixture {
             config_dir,
             skills_dir,
-            rover,
+            example,
             team_a,
             team_b,
         };
 
-        // Register all aliases used across the docs and set rover as active
+        // Register all aliases used across the docs and set example as active
         fix.a2a_sync(&[
             "agent",
             "add",
-            "rover",
-            &fix.rover.base_url,
+            "example",
+            &fix.example.base_url,
             "--description",
-            "Rover",
+            "Example",
         ]);
         fix.a2a_sync(&[
             "agent",
@@ -78,7 +78,7 @@ impl DocFixture {
             "--description",
             "Team B",
         ]);
-        fix.a2a_sync(&["agent", "use", "rover"]);
+        fix.a2a_sync(&["agent", "use", "example"]);
 
         fix
     }
@@ -212,12 +212,12 @@ fn substitute(cmd: &str, fix: &DocFixture) -> String {
         .replace("<contextId>", MOCK_CTX_ID)
         // URLs
         .replace("<callback-url>", "http://127.0.0.1:19999/callback")
-        .replace("<url>", &fix.rover.base_url)
+        .replace("<url>", &fix.example.base_url)
         // Aliases
-        .replace("<alias|url>", "rover")
+        .replace("<alias|url>", "example")
         .replace("<alias1>", "team-a")
         .replace("<alias2>", "team-b")
-        .replace("<alias>", "rover")
+        .replace("<alias>", "example")
         // Quoted message placeholders
         .replace("\"<describe what you want>\"", "\"Hello\"")
         .replace("\"<your request>\"", "\"Hello\"")
@@ -227,16 +227,8 @@ fn substitute(cmd: &str, fix: &DocFixture) -> String {
         .replace("<target>", "x86_64-unknown-linux-gnu")
         .replace("<paths>", ".id")
         // Real agent URLs from doc examples → mock server URLs
-        .replace(
-            "https://genai.stargate.toyota/a2a/rover-agent",
-            &fix.rover.base_url,
-        )
-        .replace(
-            "https://dev.genai.stargate.toyota/a2a/rover-agent",
-            &fix.rover.base_url,
-        )
-        .replace("https://agent.example.com", &fix.rover.base_url)
-        .replace("http://localhost:8080", &fix.rover.base_url)
+        .replace("https://agent.example.com", &fix.example.base_url)
+        .replace("http://localhost:8080", &fix.example.base_url)
 }
 
 // ── Snippet extraction ────────────────────────────────────────────────

@@ -11,7 +11,6 @@ use crate::validate::AgentAlias;
 
 const CONFIG_DIR: &str = "a2a-cli";
 const CONFIG_FILE: &str = "config.yaml";
-const CLIENT_METADATA_PATH: &str = "/a2a/cli/.well-known/client-metadata.json";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -100,7 +99,7 @@ pub fn config_path() -> Result<PathBuf> {
 pub fn load() -> Result<Config> {
     let path = config_path()?;
     if !path.exists() {
-        return Ok(default_config());
+        return Ok(Config::default());
     }
     load_config_at(&path)
 }
@@ -293,28 +292,5 @@ mod tests {
         // Empty config should serialize to minimal YAML (no noise).
         assert!(!yaml.contains("current_agent"));
         assert!(!yaml.contains("agents"));
-    }
-}
-
-fn default_config() -> Config {
-    let host = env!("A2A_DEFAULT_HOST");
-    let mut agents = HashMap::new();
-    // SAFETY: "rover" is a valid alias — static string, no path separators.
-    let rover = AgentAlias::new("rover").expect("rover is a valid alias");
-    agents.insert(
-        rover.clone(),
-        Agent {
-            url: format!("https://{host}/a2a/rover-agent"),
-            description: "Rover Agent".to_string(),
-            transport: String::new(),
-            oauth: Some(OAuthConfig {
-                client_id: format!("https://{host}{CLIENT_METADATA_PATH}"),
-                scopes: vec![],
-            }),
-        },
-    );
-    Config {
-        current_agent: Some(rover),
-        agents,
     }
 }

@@ -8,7 +8,7 @@ body = """
 {% for commit in commits %}
 - {% if commit.breaking %}**BREAKING** {% endif %}\
 {{ commit.message | upper_first }} \
-([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/sg-genai/genai-cli/commit/{{ commit.id }}))
+([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/sandangel/a2a-cli/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
 """
