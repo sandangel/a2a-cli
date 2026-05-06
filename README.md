@@ -8,7 +8,16 @@ The Rust package is `a2a-protocol-cli`, and the library crate is `a2a_cli`.
 
 ### npm (recommended)
 
+GitHub requires authentication to install packages from its registry. The easiest way is using the [GitHub CLI](https://cli.github.com/):
+
 ```bash
+# 1. Login to GitHub (if not already)
+gh auth login --scopes read:packages
+
+# 2. Set the auth token for the npm registry
+npm config set //npm.pkg.github.com/:_authToken $(gh auth token)
+
+# 3. Install the CLI
 npm install -g @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com
 ```
 

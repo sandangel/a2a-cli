@@ -29,13 +29,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Proto → JSON Schema
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
-    let proto_root = PathBuf::from("proto");
+    let proto_root = [
+        PathBuf::from("../a2a-rs/a2a-pb/proto"),
+        PathBuf::from("proto"),
+    ]
+    .into_iter()
+    .find(|path| path.join("a2a.proto").is_file())
+    .ok_or("a2a.proto not found in a2a-rs submodule or package proto directory")?;
     let descriptor_path = out_dir.join("a2a-descriptor.bin");
 
-    println!("cargo:rerun-if-changed=proto/a2a.proto");
-    println!("cargo:rerun-if-changed=proto/google/api/annotations.proto");
-    println!("cargo:rerun-if-changed=proto/google/api/client.proto");
-    println!("cargo:rerun-if-changed=proto/google/api/field_behavior.proto");
+    println!("cargo:rerun-if-changed={}/a2a.proto", proto_root.display());
+    println!(
+        "cargo:rerun-if-changed={}/google/api/annotations.proto",
+        proto_root.display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}/google/api/client.proto",
+        proto_root.display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}/google/api/field_behavior.proto",
+        proto_root.display()
+    );
 
     let protoc = protoc_bin_vendored::protoc_bin_path()?;
     let status = std::process::Command::new(protoc)

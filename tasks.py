@@ -136,6 +136,13 @@ pub mod formatter;""",
     lib_rs.write_text(text)
 
 
+def _vendor_publish_proto(stage_repo):
+    destination = stage_repo / "a2a-cli/proto"
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(ROOT / "a2a-rs/a2a-pb/proto", destination)
+
+
 def _mark_skill_internal(path):
     text = path.read_text()
     if re.search(r"(?m)^\s*internal:\s*true\s*$", text):
@@ -302,6 +309,7 @@ def package_crates(c, version, dry_run=False):
         stage_repo = Path(stage) / "repo"
         shutil.copytree(ROOT, stage_repo, ignore=_publish_ignore)
         _vendor_publish_modules(stage_repo)
+        _vendor_publish_proto(stage_repo)
         _sync_cargo_version_at(stage_repo, version)
 
         with c.cd(str(stage_repo)):
