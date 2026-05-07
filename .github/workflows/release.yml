@@ -1,6 +1,12 @@
 # Release workflow for a2a-cli
 #
-# Triggered manually from main: Actions → Release → Run workflow
+# Triggered manually from main for RC/stable releases, and automatically on
+# pushes to main for dev npm packages.
+#
+# Dev flow:
+#   1. Build release binaries from the pushed commit
+#   2. Publish npm packages as 0.0.0-dev.sha-{shortsha} with the dev dist-tag
+#   3. Do not create git tags, GitHub Releases, or Rust crate artifacts
 #
 # RC flow:
 #   1. Recreate release/candidate from the latest stable release tag
@@ -18,7 +24,7 @@
 
 name: Release
 
-run-name: "Release (${{ inputs.release_type || 'rc' }})"
+run-name: "Release (${{ github.event_name == 'push' && 'dev' || inputs.release_type || 'rc' }})"
 
 permissions:
   contents: write
@@ -27,6 +33,8 @@ permissions:
   packages: write
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       release_type:
@@ -49,25 +57,28 @@ jobs:
   # ── plan ────────────────────────────────────────────────────────────────────
   plan:
     runs-on: ubuntu-latest
-    environment: release
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
+      ref: ${{ steps.meta.outputs.ref }}
+      tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
       prev_tag: ${{ steps.meta.outputs.prev_tag }}
       npm_tag: ${{ steps.meta.outputs.npm_tag }}
+      publish_crates: ${{ steps.meta.outputs.publish_crates }}
+      create_release: ${{ steps.meta.outputs.create_release }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up git identity
+        if: github.event_name == 'workflow_dispatch'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Prepare release/candidate branch
-        if: inputs.release_type == 'rc'
+        if: github.event_name == 'workflow_dispatch' && inputs.release_type == 'rc'
         run: |
           # Delete existing release/candidate if present
           if git ls-remote --exit-code origin refs/heads/release/candidate; then
@@ -98,6 +109,7 @@ jobs:
           git push origin release/candidate
 
       - name: Compute version and push tag
+        if: github.event_name == 'workflow_dispatch'
         id: tag
         run: |
           if [ "${{ inputs.release_type }}" = "release" ]; then
@@ -120,8 +132,11 @@ jobs:
               | grep -v '\-' | sort -V | tail -1)
             LATEST_STABLE_VER="${LATEST_STABLE#v}"
 
-            RANGE="${LATEST_STABLE:+${LATEST_STABLE}..}HEAD"
-            SUBJECTS=$(git log --format=%s ${RANGE})
+            if [ -n "$LATEST_STABLE" ]; then
+              SUBJECTS=$(git log --format=%s "${LATEST_STABLE}..HEAD")
+            else
+              SUBJECTS=$(git log --format=%s HEAD)
+            fi
 
             MAJOR=0; MINOR=0; PATCH=0
             while IFS= read -r msg; do
@@ -166,17 +181,39 @@ jobs:
       - name: Resolve metadata
         id: meta
         run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            SHORT_SHA="${GITHUB_SHA::12}"
+            VERSION="0.0.0-dev.sha-${SHORT_SHA}"
+            {
+              echo "ref=${GITHUB_SHA}"
+              echo "tag="
+              echo "version=${VERSION}"
+              echo "prerelease=true"
+              echo "prev_tag="
+              echo "npm_tag=dev"
+              echo "publish_crates=false"
+              echo "create_release=false"
+            } >> "$GITHUB_OUTPUT"
+            echo "resolved dev package: version=${VERSION}, ref=${GITHUB_SHA}"
+            exit 0
+          fi
+
           TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
-          echo "tag=${TAG}"         >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "ref=${TAG}"
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "publish_crates=true"
+            echo "create_release=true"
+          } >> "$GITHUB_OUTPUT"
 
           # Latest stable = highest vX.Y.Z without a pre-release suffix
           LATEST_STABLE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" \
             | grep -v '\-' | sort -V | grep -v "^${TAG}$" | tail -1)
 
           if [[ "$VERSION" == *-rc.* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            PRERELEASE=true
             BASE="${VERSION%-rc.*}"
             N="${VERSION##*-rc.}"
             if [ "$N" = "1" ]; then
@@ -185,28 +222,32 @@ jobs:
               PREV="v${BASE}-rc.$((N - 1))"
             fi
           else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            PRERELEASE=false
             PREV="$LATEST_STABLE"
           fi
 
-          echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
-
           if [[ "$VERSION" == *-rc.* ]]; then
-            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
+            NPM_TAG=next
           else
-            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+            NPM_TAG=latest
           fi
+
+          {
+            echo "prerelease=${PRERELEASE}"
+            echo "prev_tag=${PREV}"
+            echo "npm_tag=${NPM_TAG}"
+          } >> "$GITHUB_OUTPUT"
 
           echo "resolved: tag=${TAG}, prev_tag=${PREV}"
 
       - name: Write job summary
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          TYPE="${{ inputs.release_type }}"
+          TYPE="${{ github.event_name == 'push' && 'dev' || inputs.release_type }}"
           {
-            echo "## Release: \`${TAG}\`"
+            echo "## Release: \`${{ steps.meta.outputs.version }}\`"
             echo "**Type:** ${TYPE}"
             echo "**Prev tag:** ${{ steps.meta.outputs.prev_tag || '(none)' }}"
+            echo "**npm dist-tag:** ${{ steps.meta.outputs.npm_tag }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── build ───────────────────────────────────────────────────────────────────
@@ -214,12 +255,13 @@ jobs:
     needs: plan
     uses: ./.github/workflows/build.yml
     with:
-      ref: ${{ needs.plan.outputs.tag }}
+      ref: ${{ needs.plan.outputs.ref }}
       upload_artifacts: true
       attest: true
 
   # ── rust-crates ──────────────────────────────────────────────────────────────
   publish-crates:
+    if: needs.plan.outputs.publish_crates == 'true'
     needs: plan
     uses: ./.github/workflows/publish-crates.yml
     with:
@@ -228,6 +270,7 @@ jobs:
 
   # ── release ─────────────────────────────────────────────────────────────────
   release:
+    if: needs.plan.outputs.create_release == 'true'
     needs: [plan, build, publish-crates]
     runs-on: ubuntu-latest
     steps:
@@ -288,12 +331,27 @@ jobs:
             $PRERELEASE_FLAG \
             artifacts/*
 
+  release-publish-approval:
+    name: approve npm release publish
+    if: needs.plan.outputs.create_release == 'true'
+    needs: [plan, release]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - run: echo "Approved npm publish for ${{ needs.plan.outputs.version }}."
+
   # ── publish ─────────────────────────────────────────────────────────────────
   publish-npm:
-    needs: [plan, release]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.plan.result == 'success' &&
+      needs.build.result == 'success' &&
+      (needs.plan.outputs.create_release != 'true' || needs.release-publish-approval.result == 'success')
+    needs: [plan, build, release-publish-approval]
     uses: ./.github/workflows/publish-npm.yml
     secrets: inherit
     with:
-      ref: ${{ needs.plan.outputs.tag }}
+      ref: ${{ needs.plan.outputs.ref }}
       version: ${{ needs.plan.outputs.version }}
       npm_tag: ${{ needs.plan.outputs.npm_tag }}

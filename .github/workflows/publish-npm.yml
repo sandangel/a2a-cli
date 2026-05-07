@@ -9,7 +9,7 @@ on:
         type: string
         default: ""
       version:
-        description: npm package version (e.g. 0.1.0, 0.1.0-rc.1, 0.1.0-dev.abc1234)
+        description: npm package version (e.g. 0.1.0, 0.1.0-rc.1, 0.1.0-dev.sha-abc1234)
         required: true
         type: string
       npm_tag:
@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: lts/*
           registry-url: https://npm.pkg.github.com
-          scope: '@sandangel'
+          scope: "@sandangel"
 
       - uses: astral-sh/setup-uv@v8.1.0
 

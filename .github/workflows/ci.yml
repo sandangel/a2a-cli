@@ -49,11 +49,12 @@ jobs:
         run: uvx pre-commit run check-yaml --all-files
 
   build:
+    if: github.event_name == 'pull_request'
     permissions:
       contents: read
       id-token: write
       attestations: write
     uses: ./.github/workflows/build.yml
     with:
-      upload_artifacts: ${{ github.event_name == 'push' }}
-      attest: ${{ github.event_name == 'push' }}
+      upload_artifacts: false
+      attest: false
