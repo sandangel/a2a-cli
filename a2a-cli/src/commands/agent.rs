@@ -8,7 +8,7 @@ use crate::config::{Agent, OAuthConfig, load, save};
 use crate::error::{A2aCliError, Result};
 use crate::printer::print_value;
 use crate::runner::fetch_card;
-use crate::validate::{AgentAlias, validate_agent_url, validate_alias};
+use crate::validate::{AgentAlias, validate_agent_url, validate_alias, validate_oauth_client_id};
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
@@ -79,6 +79,9 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
         AgentCommand::Add(a) => {
             let alias_key = AgentAlias::new(&a.alias)?;
             validate_agent_url(&a.url)?;
+            if let Some(client_id) = &a.client_id {
+                validate_oauth_client_id(client_id)?;
+            }
             let mut cfg = load()?;
             let is_first = cfg.agents.is_empty();
             cfg.agents.insert(
@@ -246,6 +249,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                 agent.description = desc.clone();
             }
             if let Some(cid) = &a.client_id {
+                validate_oauth_client_id(cid)?;
                 agent
                     .oauth
                     .get_or_insert_with(OAuthConfig::default)
@@ -328,7 +332,14 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     if let Some(schemes) = &card.security_schemes {
         if !schemes.is_empty() {
             let _ = writeln!(s, "\n## Authentication\n");
-            let _ = writeln!(s, "```bash\na2a auth login --agent {alias}\n```\n");
+            let _ = writeln!(
+                s,
+                "OAuth login requires a client ID. Save it on the alias or pass it at login time:\n"
+            );
+            let _ = writeln!(
+                s,
+                "```bash\na2a agent update {alias} --client-id <id>\na2a auth login --agent {alias}\n\n# or one-off\na2a auth login --agent {alias} --client-id <id>\n```\n"
+            );
             let _ = writeln!(
                 s,
                 "Supported schemes: {}",

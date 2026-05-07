@@ -1,4 +1,4 @@
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 use crate::auth::{TokenStatus, login, logout, token_status};
 use crate::cli::GlobalArgs;
@@ -23,21 +23,35 @@ fn status_json(alias: &str, url: &str, s: &TokenStatus) -> serde_json::Value {
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
     /// Authenticate with an agent (auto-detects OAuth flow from agent card)
-    Login,
+    Login(LoginArgs),
     /// Remove stored credentials for an agent
     Logout,
     /// Show authentication status
     Status,
 }
 
+#[derive(Debug, Args)]
+pub struct LoginArgs {
+    /// OAuth client ID for this login (env: A2A_CLIENT_ID)
+    #[arg(long, env = "A2A_CLIENT_ID")]
+    pub client_id: Option<String>,
+}
+
 pub async fn run_auth(cmd: &AuthCommand, args: &GlobalArgs) -> Result<()> {
     match cmd {
-        AuthCommand::Login => {
+        AuthCommand::Login(login_args) => {
             let target = resolve_target(args)?;
             let bearer_token = args.bearer_token();
             let card = fetch_card_raw(&target.url, bearer_token.as_deref()).await?;
 
-            match login(&target.url, &target.agent, &card).await? {
+            match login(
+                &target.url,
+                &target.agent,
+                &card,
+                login_args.client_id.as_deref(),
+            )
+            .await?
+            {
                 Some(_) => eprintln!("Authenticated with {:?} ({})", target.alias, target.url),
                 None => eprintln!("Agent {} does not require authentication.", target.url),
             }

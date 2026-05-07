@@ -4,7 +4,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
 use std::time::Duration;
 
-use a2a_cli::auth::refresh_if_expired;
+use a2a_cli::auth::{refresh_if_expired, resolve_oauth_client_id};
 use a2a_cli::cli::{Cli, Command};
 use a2a_cli::client::{resolve_all_targets, resolve_explicit_targets, resolve_target};
 use a2a_cli::commands::{
@@ -78,11 +78,22 @@ async fn dispatch(cli: Cli) -> a2a_cli::error::Result<()> {
         let tripped: Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
             Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
 
-        let futs: FuturesUnordered<_> = targets
+        let targets: Vec<_> = targets
             .into_iter()
             .map(|t| {
                 let explicit_bearer = args.bearer_token();
-                let client_id = t.agent.oauth_or_default().client_id.clone();
+                let client_id = if explicit_bearer.is_some() {
+                    String::new()
+                } else {
+                    resolve_oauth_client_id(&t.agent, None)?.unwrap_or_default()
+                };
+                Ok((t, explicit_bearer, client_id))
+            })
+            .collect::<a2a_cli::error::Result<_>>()?;
+
+        let futs: FuturesUnordered<_> = targets
+            .into_iter()
+            .map(|(t, explicit_bearer, client_id)| {
                 let binding = args.transport;
                 let tenant = args.tenant.clone();
                 let cmd = Arc::clone(&command);
@@ -139,12 +150,12 @@ async fn dispatch(cli: Cli) -> a2a_cli::error::Result<()> {
 
     // Single agent — prefer explicit --bearer-token, fall back to stored token (auto-refresh).
     let target = resolve_target(args)?;
-    let bearer = resolve_bearer(
-        args.bearer_token(),
-        &target.url,
-        &target.agent.oauth_or_default().client_id,
-    )
-    .await;
+    let client_id = if args.bearer_token().is_some() {
+        String::new()
+    } else {
+        resolve_oauth_client_id(&target.agent, None)?.unwrap_or_default()
+    };
+    let bearer = resolve_bearer(args.bearer_token(), &target.url, &client_id).await;
     let bearer = bearer.as_deref();
     let binding = args.transport;
     let tenant = args.tenant.as_deref();

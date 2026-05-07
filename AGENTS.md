@@ -43,6 +43,7 @@ a2a agent use example
 
 # Authenticate (auto-detects OAuth flow from agent card)
 a2a auth login
+a2a auth login --client-id <id>
 
 # Send a message
 a2a send "Hello, agent!"
@@ -156,6 +157,7 @@ Each registered agent alias has its own OAuth config and token:
 - Fallback encrypted files live under `~/.config/a2a-cli/tokens/<host>.enc`
 - Backend: `A2A_KEYRING_BACKEND=keyring` (default) or `file` (headless/Docker)
 - Flow auto-detected from agent card: AuthCode+PKCE > DeviceCode > ClientCredentials
+- OAuth client ID precedence: `a2a auth login --client-id <id>` > `A2A_CLIENT_ID` > per-agent config from `a2a agent add/update --client-id <id>`
 
 ### A2A Two-Layer Card Protocol
 
@@ -244,6 +246,7 @@ CI auto-regenerates on push via `.github/workflows/generate-skills.yml`.
 |----------|-----------|---------|
 | Agent URL flag | `validate_agent_url()` | Non-http/https, control chars, dangerous Unicode |
 | Agent alias | `validate_alias()` | Empty, path separators (`/`, `\`), control chars |
+| OAuth client ID | `validate_oauth_client_id()` | Empty, control chars, dangerous Unicode |
 | Message text | `validate_message_text()` | Null bytes, C0/C1 control chars (except `\n`, `\t`), bidi overrides |
 | Any flag value | `reject_dangerous_chars()` | All control chars + dangerous Unicode |
 
@@ -269,6 +272,7 @@ Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, pl
 | `A2A_AGENT_URL` | Default agent alias or URL (single agent) |
 | `A2A_BEARER_TOKEN` | Static bearer token — bypasses OAuth for all agents |
 | `A2A_KEYRING_BACKEND` | `keyring` (default) or `file` (headless/Docker) |
+| `A2A_CLIENT_ID` | OAuth client ID override for login/token refresh |
 | `A2A_CLIENT_SECRET` | Client secret for Client Credentials OAuth flow |
 | `A2A_CONFIG_DIR` | Override config directory, defaulting to `~/.config/a2a-cli` |
 | `A2A_BINARY_PATH` | Override binary path (for npm wrapper) |

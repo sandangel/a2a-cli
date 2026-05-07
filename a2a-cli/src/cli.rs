@@ -140,7 +140,7 @@ pub enum Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
+    use clap::{CommandFactory, Parser};
     use std::collections::BTreeSet;
 
     /// Asserts that the set of top-level subcommands matches the documented list.
@@ -174,5 +174,18 @@ mod tests {
             actual, expected,
             "CLI subcommands changed — update AGENTS.md, CONTEXT.md, and README.md"
         );
+    }
+
+    #[test]
+    fn auth_login_accepts_client_id_flag() {
+        let cli = Cli::try_parse_from(["a2a", "auth", "login", "--client-id", "client-123"])
+            .expect("auth login should accept --client-id");
+
+        match cli.command {
+            Command::Auth {
+                command: AuthCommand::Login(args),
+            } => assert_eq!(args.client_id.as_deref(), Some("client-123")),
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 }

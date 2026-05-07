@@ -20,6 +20,7 @@ use sha2::{Digest, Sha256};
 use crate::config::Agent;
 use crate::error::{A2aCliError, Result};
 use crate::token_store::{Token, delete_token, load_token, save_token};
+use crate::validate::validate_oauth_client_id;
 
 // ── Extracted OAuth flow info (protocol-version agnostic) ─────────────
 
@@ -123,9 +124,55 @@ fn extract_scope_names(scopes_val: Option<&Value>) -> Vec<String> {
     }
 }
 
+/// Resolve the OAuth client ID using CLI override > environment > agent config.
+///
+/// Returns `Ok(None)` when no client ID is configured. Callers that are about
+/// to start an OAuth flow should convert that to a user-facing auth error.
+pub fn resolve_oauth_client_id(
+    agent: &Agent,
+    override_client_id: Option<&str>,
+) -> Result<Option<String>> {
+    if let Some(client_id) = override_client_id {
+        validate_oauth_client_id(client_id)?;
+        return Ok(Some(client_id.to_string()));
+    }
+
+    if let Ok(client_id) = std::env::var("A2A_CLIENT_ID")
+        && !client_id.is_empty()
+    {
+        validate_oauth_client_id(&client_id)?;
+        return Ok(Some(client_id));
+    }
+
+    let client_id = &agent.oauth_or_default().client_id;
+    if client_id.is_empty() {
+        return Ok(None);
+    }
+    validate_oauth_client_id(client_id)?;
+    Ok(Some(client_id.clone()))
+}
+
+fn require_oauth_client_id(agent: &Agent, override_client_id: Option<&str>) -> Result<String> {
+    resolve_oauth_client_id(agent, override_client_id)?.ok_or_else(|| {
+        A2aCliError::Auth(
+            "OAuth client ID is required. Pass `a2a auth login --client-id <id>`, set A2A_CLIENT_ID, or save it with `a2a agent update <alias> --client-id <id>`."
+                .to_string(),
+        )
+    })
+}
+
 // ── Public API ────────────────────────────────────────────────────────
 
-pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Option<String>> {
+pub async fn login(
+    agent_url: &str,
+    agent: &Agent,
+    card: &Value,
+    client_id_override: Option<&str>,
+) -> Result<Option<String>> {
+    if let Some(client_id) = client_id_override {
+        validate_oauth_client_id(client_id)?;
+    }
+
     if let Some(token) = load_token(agent_url)?
         && !token.is_expired()
     {
@@ -136,6 +183,7 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
     if flows.is_empty() {
         return Ok(None);
     }
+    let client_id = require_oauth_client_id(agent, client_id_override)?;
 
     // Prefer auth code, then device code, then client credentials — use first declared flow.
     let token = match flows.first() {
@@ -149,14 +197,7 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
             } else {
                 &agent.oauth_or_default().scopes
             };
-            auth_code_pkce_flow(
-                auth_url,
-                token_url,
-                &agent.oauth_or_default().client_id,
-                cfg_scopes,
-                agent_url,
-            )
-            .await?
+            auth_code_pkce_flow(auth_url, token_url, &client_id, cfg_scopes, agent_url).await?
         }
         Some(OAuthFlow::DeviceCode {
             device_auth_url,
@@ -171,7 +212,7 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
             device_code_flow(
                 device_auth_url,
                 token_url,
-                &agent.oauth_or_default().client_id,
+                &client_id,
                 cfg_scopes,
                 agent_url,
             )
@@ -183,13 +224,7 @@ pub async fn login(agent_url: &str, agent: &Agent, card: &Value) -> Result<Optio
             } else {
                 &agent.oauth_or_default().scopes
             };
-            client_credentials_flow(
-                token_url,
-                &agent.oauth_or_default().client_id,
-                cfg_scopes,
-                agent_url,
-            )
-            .await?
+            client_credentials_flow(token_url, &client_id, cfg_scopes, agent_url).await?
         }
         None => return Ok(None),
     };
@@ -212,6 +247,15 @@ pub async fn refresh_if_expired(agent_url: &str, client_id: &str) -> Result<Opti
     if !token.is_expired() {
         return Ok(Some(token.access_token));
     }
+    let client_id = if client_id.trim().is_empty() {
+        token.client_id.clone().unwrap_or_default()
+    } else {
+        client_id.to_string()
+    };
+    if client_id.trim().is_empty() {
+        return Ok(None);
+    }
+    validate_oauth_client_id(&client_id)?;
     let (Some(refresh_token), Some(token_url)) =
         (token.refresh_token.as_deref(), token.token_url.as_deref())
     else {
@@ -219,7 +263,7 @@ pub async fn refresh_if_expired(agent_url: &str, client_id: &str) -> Result<Opti
     };
     match do_refresh(
         token_url,
-        client_id,
+        &client_id,
         refresh_token,
         &token.scopes,
         agent_url,
@@ -262,7 +306,7 @@ async fn do_refresh(
     }
     let body: Value = resp.json().await.map_err(A2aCliError::Http)?;
     // Preserve the existing refresh_token if the server doesn't issue a new one.
-    let mut token = token_from_json(&body, scopes, Some(token_url))?;
+    let mut token = token_from_json(&body, scopes, Some(token_url), Some(client_id))?;
     if token.refresh_token.is_none() {
         token.refresh_token = Some(refresh_token.to_string());
     }
@@ -419,7 +463,7 @@ async fn auth_code_pkce_flow(
         .map_err(A2aCliError::Http)?;
 
     let body: Value = resp.json().await.map_err(A2aCliError::Http)?;
-    let token = token_from_json(&body, scopes, Some(token_url))?;
+    let token = token_from_json(&body, scopes, Some(token_url), Some(client_id))?;
     save_token(agent_url, &token)?;
     Ok(token)
 }
@@ -527,6 +571,7 @@ async fn device_code_flow(
         token_type: "Bearer".to_string(),
         scopes: scopes.to_vec(),
         token_url: Some(token_url.to_string()),
+        client_id: Some(client_id.to_string()),
     };
     save_token(agent_url, &token)?;
     Ok(token)
@@ -575,6 +620,7 @@ async fn client_credentials_flow(
         token_type: "Bearer".to_string(),
         scopes: scopes.to_vec(),
         token_url: Some(token_url.to_string()),
+        client_id: Some(client_id.to_string()),
     };
     save_token(agent_url, &token)?;
     Ok(token)
@@ -582,7 +628,12 @@ async fn client_credentials_flow(
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn token_from_json(body: &Value, scopes: &[String], token_url: Option<&str>) -> Result<Token> {
+fn token_from_json(
+    body: &Value,
+    scopes: &[String],
+    token_url: Option<&str>,
+    client_id: Option<&str>,
+) -> Result<Token> {
     let access_token = body
         .get("access_token")
         .and_then(|v| v.as_str())
@@ -608,6 +659,9 @@ fn token_from_json(body: &Value, scopes: &[String], token_url: Option<&str>) -> 
             .to_string(),
         scopes: scopes.to_vec(),
         token_url: token_url.map(str::to_string),
+        client_id: client_id
+            .filter(|id| !id.trim().is_empty())
+            .map(str::to_string),
     })
 }
 
@@ -699,7 +753,22 @@ pub(crate) mod test_utils {
 
 #[cfg(test)]
 mod tests {
+    use super::test_utils::EnvGuard;
     use super::*;
+    use crate::config::OAuthConfig;
+    use serial_test::serial;
+
+    fn agent_with_client_id(client_id: Option<&str>) -> Agent {
+        Agent {
+            url: "http://agent.test/".to_string(),
+            description: String::new(),
+            transport: String::new(),
+            oauth: client_id.map(|id| OAuthConfig {
+                client_id: id.to_string(),
+                scopes: vec![],
+            }),
+        }
+    }
 
     fn card_with_auth_code() -> Value {
         serde_json::json!({
@@ -896,6 +965,101 @@ mod tests {
         });
         assert!(extract_oauth_flows(&card).is_empty());
     }
+
+    // ── client ID resolution ─────────────────────────────────────────
+
+    #[test]
+    fn resolve_client_id_prefers_override() {
+        let agent = agent_with_client_id(Some("configured-client"));
+
+        let client_id = resolve_oauth_client_id(&agent, Some("override-client")).unwrap();
+
+        assert_eq!(client_id.as_deref(), Some("override-client"));
+    }
+
+    #[test]
+    #[serial]
+    fn resolve_client_id_uses_env_before_config() {
+        let _env = EnvGuard::set("A2A_CLIENT_ID", "env-client");
+        let agent = agent_with_client_id(Some("configured-client"));
+
+        let client_id = resolve_oauth_client_id(&agent, None).unwrap();
+
+        assert_eq!(client_id.as_deref(), Some("env-client"));
+    }
+
+    #[test]
+    #[serial]
+    fn resolve_client_id_uses_config_when_no_override_or_env() {
+        let _env = EnvGuard::set("A2A_CLIENT_ID", "");
+        let agent = agent_with_client_id(Some("configured-client"));
+
+        let client_id = resolve_oauth_client_id(&agent, None).unwrap();
+
+        assert_eq!(client_id.as_deref(), Some("configured-client"));
+    }
+
+    #[test]
+    #[serial]
+    fn resolve_client_id_returns_none_when_missing() {
+        let _env = EnvGuard::set("A2A_CLIENT_ID", "");
+        let agent = agent_with_client_id(None);
+
+        let client_id = resolve_oauth_client_id(&agent, None).unwrap();
+
+        assert!(client_id.is_none());
+    }
+
+    #[test]
+    fn resolve_client_id_rejects_empty_override() {
+        let agent = agent_with_client_id(Some("configured-client"));
+
+        let result = resolve_oauth_client_id(&agent, Some(""));
+
+        assert!(result.is_err());
+    }
+
+    // ── login preflight ──────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn login_requires_client_id_for_oauth_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let _cfg = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _client_id = EnvGuard::set("A2A_CLIENT_ID", "");
+        let agent = agent_with_client_id(None);
+
+        let err = login(
+            "http://missing-client.test/",
+            &agent,
+            &card_with_client_credentials(),
+            None,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("OAuth client ID is required"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn login_without_oauth_flows_does_not_require_client_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let _cfg = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _client_id = EnvGuard::set("A2A_CLIENT_ID", "");
+        let agent = agent_with_client_id(None);
+
+        let result = login(
+            "http://no-auth-client.test/",
+            &agent,
+            &serde_json::json!({"name": "No Auth"}),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.is_none());
+    }
 }
 
 #[cfg(test)]
@@ -920,6 +1084,7 @@ mod refresh_tests {
             token_type: "Bearer".to_string(),
             scopes: vec!["openid".to_string()],
             token_url: token_url.map(str::to_string),
+            client_id: None,
         }
     }
 
@@ -931,6 +1096,7 @@ mod refresh_tests {
             token_type: "Bearer".to_string(),
             scopes: vec!["openid".to_string()],
             token_url: Some("https://auth.example.com/token".to_string()),
+            client_id: None,
         }
     }
 
@@ -1022,6 +1188,35 @@ mod refresh_tests {
         let stored = load_token("http://refresh-ok.test/").unwrap().unwrap();
         assert_eq!(stored.access_token, "new-access");
         assert_eq!(stored.refresh_token.as_deref(), Some("new-refresh"));
+
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn expired_token_uses_stored_client_id_when_argument_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+
+        let (server_url, server) = spawn_token_server(
+            200,
+            r#"{"access_token":"new-access","expires_in":3600,"token_type":"Bearer","refresh_token":"new-refresh"}"#,
+        )
+        .await;
+
+        let mut token = expired_token(Some("old-refresh"), Some(&server_url));
+        token.client_id = Some("stored-client-id".to_string());
+        save_token("http://stored-client.test/", &token).unwrap();
+
+        let result = refresh_if_expired("http://stored-client.test/", "")
+            .await
+            .unwrap();
+        assert_eq!(result, Some("new-access".to_string()));
+
+        let stored = load_token("http://stored-client.test/")
+            .unwrap()
+            .expect("refreshed token should be saved");
+        assert_eq!(stored.client_id.as_deref(), Some("stored-client-id"));
 
         let _ = server.await;
     }
@@ -1280,6 +1475,7 @@ mod pkce_flow_tests {
             .expect("load_token failed")
             .expect("token not found after login");
         assert_eq!(stored.access_token, "mock-access-token");
+        assert_eq!(stored.client_id.as_deref(), Some("test-client-id"));
         assert!(stored.expires_at.is_some(), "expires_at must be set");
 
         // ── Cleanup ───────────────────────────────────────────────────

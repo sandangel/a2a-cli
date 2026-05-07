@@ -38,6 +38,9 @@ pub struct Token {
     /// Token endpoint URL — stored so we can refresh without re-fetching the agent card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_url: Option<String>,
+    /// OAuth client ID used for the token. Stored so raw-URL logins can refresh later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
 }
 
 impl Token {

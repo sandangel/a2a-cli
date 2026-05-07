@@ -196,9 +196,14 @@ for headless / Docker environments.
 ```bash
 a2a auth login               # active agent
 a2a auth login --agent example  # specific agent
+a2a auth login --client-id <id> # OAuth client ID override
 a2a auth status              # all agents
 a2a auth logout --agent example
 ```
+
+OAuth client IDs can be saved per agent with
+`a2a agent update <alias> --client-id <id>`, passed to login with
+`--client-id`, or supplied through `A2A_CLIENT_ID`.
 
 ## Environment variables
 
@@ -207,6 +212,7 @@ a2a auth logout --agent example
 | `A2A_AGENT_URL` | Default agent alias or URL |
 | `A2A_BEARER_TOKEN` | Static token — bypasses OAuth |
 | `A2A_KEYRING_BACKEND` | `keyring` (default) or `file` |
+| `A2A_CLIENT_ID` | OAuth client ID override for login/token refresh |
 | `A2A_CLIENT_SECRET` | Client secret for Client Credentials flow |
 | `A2A_CONFIG_DIR` | Override config directory, defaulting to `~/.config/a2a-cli` |
 

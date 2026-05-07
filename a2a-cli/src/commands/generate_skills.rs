@@ -64,6 +64,7 @@ register agent → authenticate → send message → read reply
 a2a agent add <alias> <url>   # register once
 a2a agent use <alias>         # set active agent
 a2a auth login                # authenticate (auto-detects OAuth flow)
+a2a auth login --client-id <id>
 a2a send "your request"       # send — returns Task JSON when complete
 ```
 
@@ -134,14 +135,18 @@ a2a agent remove local                # deregister
 ## Authentication
 
 Each agent has its own token. The OAuth flow is auto-detected from the agent card.
+When the agent card declares OAuth, `a2a auth login` requires an OAuth client ID.
 
 ```bash
 a2a auth login                        # active agent
 a2a auth login --agent <alias>        # specific agent
+a2a auth login --client-id <id>       # OAuth client ID override
 a2a auth status                       # token status for all agents
 a2a auth logout --agent <alias>       # remove stored token
 ```
 
+OAuth client ID precedence is: `a2a auth login --client-id <id>` > `A2A_CLIENT_ID` >
+per-agent config from `a2a agent add/update <alias> --client-id <id>`.
 `A2A_BEARER_TOKEN` bypasses OAuth entirely (CI/scripts).
 
 ## Sending Messages
@@ -228,6 +233,7 @@ a2a extended-card                     # authenticated extended card
 | `A2A_AGENT_URL` | Default agent alias or URL |
 | `A2A_BEARER_TOKEN` | Static bearer token — bypasses OAuth |
 | `A2A_KEYRING_BACKEND` | `keyring` (default) or `file` (headless/Docker) |
+| `A2A_CLIENT_ID` | OAuth client ID override for login/token refresh |
 | `A2A_CLIENT_SECRET` | Client secret for Client Credentials OAuth flow |
 
 ## Push Notifications

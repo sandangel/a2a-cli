@@ -179,6 +179,15 @@ pub fn validate_message_text(text: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_oauth_client_id(client_id: &str) -> Result<()> {
+    if client_id.trim().is_empty() {
+        return Err(A2aCliError::InvalidInput(
+            "OAuth client ID must not be empty".to_string(),
+        ));
+    }
+    reject_dangerous_chars(client_id, "--client-id")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,5 +364,27 @@ mod tests {
     #[test]
     fn message_text_unicode_ok() {
         assert!(validate_message_text("こんにちは 🎉").is_ok());
+    }
+
+    // ── validate_oauth_client_id ─────────────────────────────────────
+
+    #[test]
+    fn oauth_client_id_plain_ok() {
+        assert!(validate_oauth_client_id("test-client-id").is_ok());
+    }
+
+    #[test]
+    fn oauth_client_id_empty_rejected() {
+        assert!(validate_oauth_client_id("").is_err());
+    }
+
+    #[test]
+    fn oauth_client_id_whitespace_rejected() {
+        assert!(validate_oauth_client_id("   ").is_err());
+    }
+
+    #[test]
+    fn oauth_client_id_control_char_rejected() {
+        assert!(validate_oauth_client_id("client\0id").is_err());
     }
 }
