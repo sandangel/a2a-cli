@@ -76,11 +76,11 @@ a2a [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--comp
 | `a2a task subscribe <id>` | Subscribe to live task updates (streaming) |
 | `a2a push-config create/get/list/delete` | Manage push notification configs |
 | `a2a agent add/use/list/remove/show/update` | Named agent alias registry |
-| `a2a agent generate-skills [alias...]` | Generate `skills/<alias>/SKILL.md` from live agent card |
+| `a2a agent generate-skills [--output-dir DIR] [alias...]` | Generate per-agent skills from live agent cards |
 | `a2a auth login/logout/status` | Per-agent OAuth flows |
 | `a2a schema send/task/card` | Inspect A2A protocol types (JSON Schema generated from proto) |
 | `a2a config show` | Show CLI configuration |
-| `a2a generate-skills` | Regenerate `skills/a2a/SKILL.md` — a2a CLI reference for LLMs |
+| `a2a generate-skills [--output-dir DIR]` | Generate the `a2a` CLI skill (`skills/a2a/SKILL.md` by default) |
 | `a2a completions <shell>` | Print shell completion script (bash, zsh, fish, elvish, powershell) |
 
 ### Global Flags
@@ -230,6 +230,11 @@ Use `--fields .parts` to extract the reply. Multi-agent results include `agent` 
 Regenerate with:
 ```bash
 a2a generate-skills
+```
+
+Install into the current project's agent-skill directory with:
+```bash
+a2a generate-skills --output-dir .agents/skills
 ```
 
 CI auto-regenerates on push via `.github/workflows/generate-skills.yml`.

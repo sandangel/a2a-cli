@@ -102,6 +102,9 @@ async fn main() -> a2a_cli::error::Result<()> {
 Install the `a2a` skill so your AI coding tool (Claude Code, Cursor, Copilot, etc.) knows how to use this CLI:
 
 ```bash
+# with a2a itself
+a2a generate-skills --output-dir .agents/skills
+
 # npx
 npx skills add sandangel/a2a-cli
 
@@ -114,7 +117,16 @@ To generate per-agent skills from live agent cards:
 ```bash
 a2a agent generate-skills           # all registered agents
 a2a agent generate-skills example   # specific alias
+a2a agent generate-skills --output-dir .agents/skills
 ```
+
+Both skill generators accept `--output-dir <DIR>`. The directory must be a
+relative path under the current project. Defaults:
+
+| Command | Default output |
+|---------|----------------|
+| `a2a generate-skills` | `skills/a2a/SKILL.md` |
+| `a2a agent generate-skills example` | `skills/example/SKILL.md` |
 
 ## Quick start
 
@@ -153,10 +165,12 @@ a2a send "What is my name?" --context-id <contextId>
 | `a2a task cancel <id>` | Cancel a running task |
 | `a2a task subscribe <id>` | Subscribe to live task updates |
 | `a2a agent add/use/list/remove/show/update` | Manage named agent aliases |
+| `a2a agent generate-skills [--output-dir DIR] [alias...]` | Generate per-agent skills from live agent cards |
 | `a2a auth login/logout/status` | Per-agent OAuth flows |
 | `a2a push-config create/get/list/delete` | Manage push notification configs |
 | `a2a schema send/task/card` | Inspect A2A protocol types |
 | `a2a config show` | Show CLI configuration |
+| `a2a generate-skills [--output-dir DIR]` | Generate the `a2a` CLI skill |
 | `a2a completions <shell>` | Print shell completion script |
 
 ## Global flags

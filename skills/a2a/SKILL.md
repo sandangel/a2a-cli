@@ -95,6 +95,22 @@ a2a agent update <alias> --client-id <id>
 a2a agent remove local                # deregister
 ```
 
+## Installing This Skill
+
+Use `a2a` itself to write this skill into the current project's agent-skill
+directory, similar to `npx skills add sandangel/a2a-cli`:
+
+```bash
+a2a generate-skills --output-dir .agents/skills
+```
+
+The same destination flag is available when generating skills from registered
+agent cards:
+
+```bash
+a2a agent generate-skills --output-dir .agents/skills example
+```
+
 ## Authentication
 
 Each agent has its own token. The OAuth flow is auto-detected from the agent card.

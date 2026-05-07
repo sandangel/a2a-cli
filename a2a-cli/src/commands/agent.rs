@@ -1,9 +1,9 @@
 use std::fmt::Write as FmtWrite;
-use std::path::Path;
 
 use clap::{Args, Subcommand};
 
 use crate::cli::GlobalArgs;
+use crate::commands::generate_skills::{SkillOutputArgs, display_path, write_skill};
 use crate::config::{Agent, OAuthConfig, load, save};
 use crate::error::{A2aCliError, Result};
 use crate::printer::print_value;
@@ -31,6 +31,9 @@ pub enum AgentCommand {
 
 #[derive(Debug, Args)]
 pub struct GenerateSkillsArgs {
+    #[command(flatten)]
+    pub output: SkillOutputArgs,
+
     /// Agent aliases to generate for (default: all registered agents)
     pub aliases: Vec<String>,
 }
@@ -111,9 +114,11 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
             eprint!("fetching card for {} to generate skill... ", a.alias);
             match fetch_card(&a.url, None).await {
                 Ok(card) => {
-                    let path = format!("skills/{}/SKILL.md", a.alias);
+                    let path = std::path::Path::new("skills")
+                        .join(&a.alias)
+                        .join("SKILL.md");
                     match write_skill(&path, &agent_skill(&a.alias, &a.url, &card)) {
-                        Ok(()) => eprintln!("wrote {path}"),
+                        Ok(()) => eprintln!("wrote {}", display_path(&path)),
                         Err(e) => eprintln!("skill write failed ({e})"),
                     }
                 }
@@ -209,6 +214,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
         }
         AgentCommand::GenerateSkills(a) => {
             let cfg = load()?;
+            let output_dir = a.output.resolve_dir()?;
             let aliases: Vec<String> = if a.aliases.is_empty() {
                 cfg.agents.keys().map(|k| k.as_str().to_string()).collect()
             } else {
@@ -219,6 +225,7 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                 return Ok(());
             }
             for alias in &aliases {
+                validate_alias(alias)?;
                 let agent = cfg
                     .agents
                     .get(alias as &str)
@@ -226,9 +233,9 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
                 eprint!("fetching card for {alias}... ");
                 match fetch_card(&agent.url, None).await {
                     Ok(card) => {
-                        let path = format!("skills/{alias}/SKILL.md");
+                        let path = output_dir.join(alias).join("SKILL.md");
                         write_skill(&path, &agent_skill(alias, &agent.url, &card))?;
-                        eprintln!("wrote {path}");
+                        eprintln!("wrote {}", display_path(&path));
                     }
                     Err(e) => eprintln!("skipped ({e})"),
                 }
@@ -269,14 +276,6 @@ pub async fn run_agent(cmd: &AgentCommand, args: &GlobalArgs) -> Result<()> {
 }
 
 // ── Agent skill generation ────────────────────────────────────────────
-
-fn write_skill(path: &str, content: &str) -> Result<()> {
-    let p = Path::new(path);
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(A2aCliError::Io)?;
-    }
-    std::fs::write(p, content).map_err(A2aCliError::Io)
-}
 
 fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     let mut s = String::new();
@@ -416,7 +415,27 @@ fn bool_icon(b: bool) -> &'static str {
 mod tests {
     use super::*;
     use crate::auth::test_utils::EnvGuard;
+    use std::path::{Path, PathBuf};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    struct CurrentDirGuard {
+        previous: PathBuf,
+    }
+
+    impl CurrentDirGuard {
+        fn enter(path: &Path) -> Self {
+            let previous = std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+            std::env::set_current_dir(path).unwrap();
+            Self { previous }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.previous).unwrap();
+        }
+    }
 
     /// Spawn a minimal HTTP server that serves `body` for any GET request.
     async fn spawn_card_server(body: &'static str) -> (String, tokio::task::JoinHandle<()>) {
@@ -475,7 +494,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let _cfg_guard = EnvGuard::set("A2A_CONFIG_DIR", tmp.path());
         // Run from the temp dir so skills/<alias>/SKILL.md lands there
-        let _dir_guard = std::env::set_current_dir(tmp.path());
+        let _dir_guard = CurrentDirGuard::enter(tmp.path());
 
         let (base_url, _server) = spawn_card_server(MINIMAL_CARD).await;
 
@@ -507,7 +526,7 @@ mod tests {
     async fn add_succeeds_when_card_unreachable() {
         let tmp = tempfile::tempdir().unwrap();
         let _cfg_guard = EnvGuard::set("A2A_CONFIG_DIR", tmp.path());
-        let _dir_guard = std::env::set_current_dir(tmp.path());
+        let _dir_guard = CurrentDirGuard::enter(tmp.path());
 
         // Port 1 is reserved and will be refused immediately
         let cmd = AgentCommand::Add(AddArgs {
@@ -533,5 +552,38 @@ mod tests {
 
         // but no skill file should be written
         assert!(!tmp.path().join("skills/offline/SKILL.md").exists());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn generate_skills_respects_output_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _cfg_guard = EnvGuard::set("A2A_CONFIG_DIR", tmp.path());
+        let _dir_guard = CurrentDirGuard::enter(tmp.path());
+
+        let (base_url, _server) = spawn_card_server(MINIMAL_CARD).await;
+        let alias = AgentAlias::new("myagent").unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.agents.insert(
+            alias,
+            Agent {
+                url: base_url,
+                description: String::new(),
+                transport: String::new(),
+                oauth: None,
+            },
+        );
+        save(&cfg).unwrap();
+
+        let cmd = AgentCommand::GenerateSkills(GenerateSkillsArgs {
+            output: SkillOutputArgs {
+                output_dir: Some(".agents/skills".to_string()),
+            },
+            aliases: vec!["myagent".to_string()],
+        });
+        run_agent(&cmd, &default_global_args()).await.unwrap();
+
+        assert!(tmp.path().join(".agents/skills/myagent/SKILL.md").exists());
+        assert!(!tmp.path().join("skills/myagent/SKILL.md").exists());
     }
 }

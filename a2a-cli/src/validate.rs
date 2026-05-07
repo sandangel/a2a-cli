@@ -3,6 +3,8 @@
 //! Validated newtypes (`AgentAlias`, `AgentUrl`) encode the invariant in the
 //! type: once constructed, callers don't need to re-validate.
 
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::{A2aCliError, Result};
@@ -188,9 +190,85 @@ pub fn validate_oauth_client_id(client_id: &str) -> Result<()> {
     reject_dangerous_chars(client_id, "--client-id")
 }
 
+/// Validate an output directory passed on the command line.
+///
+/// Output paths are resolved relative to the current working directory and may
+/// not be absolute or contain `..` traversal. Existing path prefixes are
+/// canonicalized so symlinks cannot point the write outside the project.
+pub fn validate_safe_output_dir(dir: &str) -> Result<PathBuf> {
+    if dir.trim().is_empty() {
+        return Err(A2aCliError::InvalidInput(
+            "--output-dir must not be empty".to_string(),
+        ));
+    }
+    reject_dangerous_chars(dir, "--output-dir")?;
+
+    let path = Path::new(dir);
+    if path.is_absolute() {
+        return Err(A2aCliError::InvalidInput(format!(
+            "--output-dir must be a relative path, got absolute path '{dir}'"
+        )));
+    }
+
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(A2aCliError::InvalidInput(format!(
+                "--output-dir must not contain '..': {dir}"
+            )));
+        }
+    }
+
+    let cwd = std::env::current_dir().map_err(A2aCliError::Io)?;
+    let candidate = cwd.join(path);
+    let existing_prefix = existing_path_prefix(&candidate);
+    let canonical_prefix = existing_prefix.canonicalize().map_err(A2aCliError::Io)?;
+    let canonical_cwd = cwd.canonicalize().map_err(A2aCliError::Io)?;
+
+    if !canonical_prefix.starts_with(&canonical_cwd) {
+        return Err(A2aCliError::InvalidInput(format!(
+            "--output-dir '{dir}' resolves outside the current directory"
+        )));
+    }
+
+    Ok(candidate)
+}
+
+fn existing_path_prefix(path: &Path) -> &Path {
+    let mut current = path;
+    loop {
+        if current.exists() {
+            return current;
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return path,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
+
+    struct CurrentDirGuard {
+        previous: PathBuf,
+    }
+
+    impl CurrentDirGuard {
+        fn enter(path: &Path) -> Self {
+            let previous = std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+            std::env::set_current_dir(path).unwrap();
+            Self { previous }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.previous).unwrap();
+        }
+    }
 
     // ── AgentAlias ────────────────────────────────────────────────────
 
@@ -386,5 +464,42 @@ mod tests {
     #[test]
     fn oauth_client_id_control_char_rejected() {
         assert!(validate_oauth_client_id("client\0id").is_err());
+    }
+
+    // ── validate_safe_output_dir ─────────────────────────────────────
+
+    #[test]
+    #[serial_test::serial]
+    fn output_dir_relative_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _dir = CurrentDirGuard::enter(tmp.path());
+
+        let output = validate_safe_output_dir(".agents/skills").unwrap();
+
+        assert_eq!(output, tmp.path().join(".agents/skills"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn output_dir_absolute_rejected() {
+        assert!(validate_safe_output_dir("/tmp/a2a-skills").is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn output_dir_parent_traversal_rejected() {
+        assert!(validate_safe_output_dir("../outside").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn output_dir_symlink_outside_cwd_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let _dir = CurrentDirGuard::enter(tmp.path());
+        std::os::unix::fs::symlink(outside.path(), tmp.path().join("linked")).unwrap();
+
+        assert!(validate_safe_output_dir("linked/skills").is_err());
     }
 }

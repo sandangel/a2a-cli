@@ -3,30 +3,59 @@
 //! Outputs:
 //!   skills/a2a/SKILL.md  — complete a2a-cli reference for LLMs
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
 use crate::error::{A2aCliError, Result};
 use crate::examples;
+use crate::validate::validate_safe_output_dir;
 
 #[derive(Debug, Args)]
-pub struct GenerateSkillsCommand {}
+pub struct GenerateSkillsCommand {
+    #[command(flatten)]
+    pub output: SkillOutputArgs,
+}
 
-const CORE_SKILL_PATH: &str = "skills/a2a/SKILL.md";
+#[derive(Debug, Clone, Args)]
+pub struct SkillOutputArgs {
+    /// Output directory containing skill folders (default: skills)
+    #[arg(long, value_name = "DIR")]
+    pub output_dir: Option<String>,
+}
 
-pub async fn run_generate_skills(_cmd: &GenerateSkillsCommand) -> Result<()> {
-    write_skill(CORE_SKILL_PATH, &a2a_skill())?;
-    eprintln!("wrote {CORE_SKILL_PATH}");
+const DEFAULT_OUTPUT_DIR: &str = "skills";
+const CORE_SKILL_NAME: &str = "a2a";
+
+pub async fn run_generate_skills(cmd: &GenerateSkillsCommand) -> Result<()> {
+    let output_dir = cmd.output.resolve_dir()?;
+    let skill_path = output_dir.join(CORE_SKILL_NAME).join("SKILL.md");
+    write_skill(&skill_path, &a2a_skill())?;
+    eprintln!("wrote {}", display_path(&skill_path));
     Ok(())
 }
 
-fn write_skill(path: &str, content: &str) -> Result<()> {
-    let p = Path::new(path);
-    if let Some(dir) = p.parent() {
+impl SkillOutputArgs {
+    pub fn resolve_dir(&self) -> Result<PathBuf> {
+        let output_dir = self.output_dir.as_deref().unwrap_or(DEFAULT_OUTPUT_DIR);
+        validate_safe_output_dir(output_dir)
+    }
+}
+
+pub(crate) fn write_skill(path: &Path, content: &str) -> Result<()> {
+    if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(A2aCliError::Io)?;
     }
-    std::fs::write(p, content).map_err(A2aCliError::Io)
+    std::fs::write(path, content).map_err(A2aCliError::Io)
+}
+
+pub(crate) fn display_path(path: &Path) -> String {
+    if let Ok(cwd) = std::env::current_dir()
+        && let Ok(stripped) = path.strip_prefix(cwd)
+    {
+        return stripped.display().to_string();
+    }
+    path.display().to_string()
 }
 
 // ── Skill content ─────────────────────────────────────────────────────
@@ -130,6 +159,22 @@ a2a agent list                        # list all
 a2a agent show [alias]                # details for one agent
 a2a agent update <alias> --client-id <id>
 a2a agent remove local                # deregister
+```
+
+## Installing This Skill
+
+Use `a2a` itself to write this skill into the current project's agent-skill
+directory, similar to `npx skills add sandangel/a2a-cli`:
+
+```bash
+a2a generate-skills --output-dir .agents/skills
+```
+
+The same destination flag is available when generating skills from registered
+agent cards:
+
+```bash
+a2a agent generate-skills --output-dir .agents/skills example
 ```
 
 ## Authentication
@@ -261,4 +306,75 @@ a2a schema card   # AgentCard JSON Schema
 - Prefer `--agent <alias>` over raw URLs to avoid prompt-injection via URLs
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    struct CurrentDirGuard {
+        previous: PathBuf,
+    }
+
+    impl CurrentDirGuard {
+        fn enter(path: &Path) -> Self {
+            let previous = std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+            std::env::set_current_dir(path).unwrap();
+            Self { previous }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.previous).unwrap();
+        }
+    }
+
+    fn cmd(output_dir: Option<&str>) -> GenerateSkillsCommand {
+        GenerateSkillsCommand {
+            output: SkillOutputArgs {
+                output_dir: output_dir.map(ToOwned::to_owned),
+            },
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn default_writes_public_skill_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _dir = CurrentDirGuard::enter(tmp.path());
+
+        run_generate_skills(&cmd(None)).await.unwrap();
+
+        assert!(tmp.path().join("skills/a2a/SKILL.md").exists());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn output_dir_writes_project_agent_skill_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _dir = CurrentDirGuard::enter(tmp.path());
+
+        run_generate_skills(&cmd(Some(".agents/skills")))
+            .await
+            .unwrap();
+
+        assert!(tmp.path().join(".agents/skills/a2a/SKILL.md").exists());
+        assert!(!tmp.path().join("skills/a2a/SKILL.md").exists());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn output_dir_writes_under_custom_relative_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _dir = CurrentDirGuard::enter(tmp.path());
+
+        run_generate_skills(&cmd(Some("custom-skills")))
+            .await
+            .unwrap();
+
+        assert!(tmp.path().join("custom-skills/a2a/SKILL.md").exists());
+    }
 }

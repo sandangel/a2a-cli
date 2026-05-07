@@ -188,4 +188,40 @@ mod tests {
             other => panic!("unexpected command: {other:?}"),
         }
     }
+
+    #[test]
+    fn generate_skills_accepts_output_dir() {
+        let cli = Cli::try_parse_from(["a2a", "generate-skills", "--output-dir", ".agents/skills"])
+            .expect("generate-skills should accept --output-dir");
+
+        match cli.command {
+            Command::GenerateSkills(args) => {
+                assert_eq!(args.output.output_dir.as_deref(), Some(".agents/skills"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_generate_skills_accepts_shared_output_flags() {
+        let cli = Cli::try_parse_from([
+            "a2a",
+            "agent",
+            "generate-skills",
+            "--output-dir",
+            ".agents/skills",
+            "example",
+        ])
+        .expect("agent generate-skills should accept --output-dir");
+
+        match cli.command {
+            Command::Agent {
+                command: AgentCommand::GenerateSkills(args),
+            } => {
+                assert_eq!(args.output.output_dir.as_deref(), Some(".agents/skills"));
+                assert_eq!(args.aliases, ["example"]);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 }
