@@ -63,6 +63,7 @@ pub(crate) fn display_path(path: &Path) -> String {
 fn a2a_skill() -> String {
     let send_fields_artifacts = examples::SEND_FIELDS_ARTIFACTS;
     let send_fields_state_and_artifacts = examples::SEND_FIELDS_STATE_AND_ARTIFACTS;
+    let send_capture_context = examples::SEND_CAPTURE_CONTEXT;
     format!(
         r#"---
 name: a2a
@@ -139,6 +140,22 @@ a2a send "Summarise this PR"
 
 Use `--fields .parts` when the agent returns a direct Message.
 
+## Asking Questions and Follow-ups
+
+Ask questions with `a2a send`. For follow-up questions, capture `contextId`
+from the first response and pass it to the next send with `--context-id`.
+
+```bash
+# Ask and keep the conversation context for later
+{send_capture_context}
+
+# Follow up in the same conversation
+a2a send "What should I do next?" --context-id <contextId> --fields "(.task // .).artifacts"
+```
+
+Use `contextId` for conversational continuity. Use `--task-id` only when
+`status.state` is `input-required` and the agent is waiting for input on that task.
+
 | `status.state` | Meaning | Action |
 |---|---|---|
 | `submitted` | Queued | Wait or poll |
@@ -192,6 +209,8 @@ a2a auth logout --agent <alias>       # remove stored token
 
 OAuth client ID precedence is: `a2a auth login --client-id <id>` > `A2A_CLIENT_ID` >
 per-agent config from `a2a agent add/update <alias> --client-id <id>`.
+Agent-facing commands use the stored token and renew expired tokens automatically
+when possible. Client Credentials renewal requires `A2A_CLIENT_SECRET`.
 `A2A_BEARER_TOKEN` bypasses OAuth entirely (CI/scripts).
 
 ## Sending Messages

@@ -16,12 +16,16 @@ use a2a_cli::runner::{is_streaming, run_streaming, run_to_value_with_retry};
 use a2a_cli::validate::validate_message_text;
 
 /// Resolve the bearer token: explicit flag takes priority, then stored token
-/// (refreshing silently if the token is expired and a refresh_token is available).
-async fn resolve_bearer(explicit: Option<String>, url: &str, client_id: &str) -> Option<String> {
+/// (refreshing silently when the stored token is expired and renewable).
+async fn resolve_bearer(
+    explicit: Option<String>,
+    url: &str,
+    client_id: &str,
+) -> a2a_cli::error::Result<Option<String>> {
     if explicit.is_some() {
-        return explicit;
+        return Ok(explicit);
     }
-    refresh_if_expired(url, client_id).await.ok().flatten()
+    refresh_if_expired(url, client_id).await
 }
 
 #[tokio::main]
@@ -106,7 +110,7 @@ async fn dispatch(cli: Cli) -> a2a_cli::error::Result<()> {
                             t.url
                         )));
                     }
-                    let bearer = resolve_bearer(explicit_bearer, &t.url, &client_id).await;
+                    let bearer = resolve_bearer(explicit_bearer, &t.url, &client_id).await?;
                     let result = run_to_value_with_retry(
                         &cmd,
                         &t.url,
@@ -155,7 +159,7 @@ async fn dispatch(cli: Cli) -> a2a_cli::error::Result<()> {
     } else {
         resolve_oauth_client_id(&target.agent, None)?.unwrap_or_default()
     };
-    let bearer = resolve_bearer(args.bearer_token(), &target.url, &client_id).await;
+    let bearer = resolve_bearer(args.bearer_token(), &target.url, &client_id).await?;
     let bearer = bearer.as_deref();
     let binding = args.transport;
     let tenant = args.tenant.as_deref();

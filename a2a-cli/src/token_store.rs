@@ -24,6 +24,14 @@ const KEYRING_ENC_KEY: &str = "encryption-key";
 
 // ── Token type ────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenGrantType {
+    AuthorizationCode,
+    DeviceCode,
+    ClientCredentials,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
     pub access_token: String,
@@ -41,6 +49,9 @@ pub struct Token {
     /// OAuth client ID used for the token. Stored so raw-URL logins can refresh later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
+    /// OAuth grant type used to obtain the token. Stored so grant-specific renewal works.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_type: Option<TokenGrantType>,
 }
 
 impl Token {

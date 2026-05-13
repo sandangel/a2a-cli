@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 
 use crate::config::Agent;
 use crate::error::{A2aCliError, Result};
-use crate::token_store::{Token, delete_token, load_token, save_token};
+use crate::token_store::{Token, TokenGrantType, delete_token, load_token, save_token};
 use crate::validate::validate_oauth_client_id;
 
 // ── Extracted OAuth flow info (protocol-version agnostic) ─────────────
@@ -239,7 +239,8 @@ pub fn logout(agent_url: &str) -> Result<()> {
 ///
 /// - Not expired → return stored access token as-is.
 /// - Expired + refresh_token + token_url stored → exchange for new token, save, return it.
-/// - Expired but no refresh capability → return `None` (caller will get 401).
+/// - Expired client-credentials token → request a new access token, save, return it.
+/// - Expired but no refresh capability → return an auth error instead of retrying unauthenticated.
 pub async fn refresh_if_expired(agent_url: &str, client_id: &str) -> Result<Option<String>> {
     let Some(token) = load_token(agent_url)? else {
         return Ok(None);
@@ -247,37 +248,65 @@ pub async fn refresh_if_expired(agent_url: &str, client_id: &str) -> Result<Opti
     if !token.is_expired() {
         return Ok(Some(token.access_token));
     }
+    refresh_expired_token(agent_url, token, client_id)
+        .await
+        .map(Some)
+}
+
+async fn refresh_expired_token(agent_url: &str, token: Token, client_id: &str) -> Result<String> {
     let client_id = if client_id.trim().is_empty() {
         token.client_id.clone().unwrap_or_default()
     } else {
         client_id.to_string()
     };
     if client_id.trim().is_empty() {
-        return Ok(None);
+        return Err(A2aCliError::Auth(
+            "stored token is expired and OAuth client ID is unavailable; run `a2a auth login --client-id <id>` to re-authenticate".to_string(),
+        ));
     }
     validate_oauth_client_id(&client_id)?;
-    let (Some(refresh_token), Some(token_url)) =
-        (token.refresh_token.as_deref(), token.token_url.as_deref())
-    else {
-        return Ok(None);
+    let Some(token_url) = token.token_url.as_deref() else {
+        return Err(A2aCliError::Auth(
+            "stored token is expired and token endpoint URL is unavailable; run `a2a auth login` to re-authenticate".to_string(),
+        ));
     };
-    match do_refresh(
-        token_url,
-        &client_id,
-        refresh_token,
-        &token.scopes,
-        agent_url,
-    )
-    .await
-    {
-        Ok(new_token) => Ok(Some(new_token.access_token)),
-        Err(e) => {
-            eprintln!(
-                "warning: token refresh failed ({e}); re-run `a2a auth login` to re-authenticate"
-            );
-            Ok(None)
-        }
+
+    if let Some(refresh_token) = token.refresh_token.as_deref() {
+        let new_token = do_refresh(
+            token_url,
+            &client_id,
+            refresh_token,
+            &token.scopes,
+            agent_url,
+            token.grant_type,
+        )
+        .await?;
+        return Ok(new_token.access_token);
     }
+
+    // Client Credentials grants normally do not issue refresh tokens. Renew by
+    // asking the token endpoint for a fresh access token. Legacy tokens do not
+    // have grant_type stored, so allow that ambiguous case to try this path too.
+    let can_try_client_credentials =
+        token.grant_type == Some(TokenGrantType::ClientCredentials) || token.grant_type.is_none();
+    if !can_try_client_credentials {
+        return Err(A2aCliError::Auth(
+            "stored token is expired and has no refresh token; run `a2a auth login` to re-authenticate".to_string(),
+        ));
+    }
+    if std::env::var("A2A_CLIENT_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return Err(A2aCliError::Auth(
+            "stored token is expired and has no refresh token. If this agent uses Client Credentials, set A2A_CLIENT_SECRET; otherwise run `a2a auth login` to re-authenticate".to_string(),
+        ));
+    }
+
+    let new_token =
+        client_credentials_flow(token_url, &client_id, &token.scopes, agent_url).await?;
+    Ok(new_token.access_token)
 }
 
 async fn do_refresh(
@@ -286,6 +315,7 @@ async fn do_refresh(
     refresh_token: &str,
     scopes: &[String],
     agent_url: &str,
+    grant_type: Option<TokenGrantType>,
 ) -> Result<Token> {
     let http = reqwest::Client::new();
     let resp = http
@@ -306,7 +336,7 @@ async fn do_refresh(
     }
     let body: Value = resp.json().await.map_err(A2aCliError::Http)?;
     // Preserve the existing refresh_token if the server doesn't issue a new one.
-    let mut token = token_from_json(&body, scopes, Some(token_url), Some(client_id))?;
+    let mut token = token_from_json(&body, scopes, Some(token_url), Some(client_id), grant_type)?;
     if token.refresh_token.is_none() {
         token.refresh_token = Some(refresh_token.to_string());
     }
@@ -463,7 +493,13 @@ async fn auth_code_pkce_flow(
         .map_err(A2aCliError::Http)?;
 
     let body: Value = resp.json().await.map_err(A2aCliError::Http)?;
-    let token = token_from_json(&body, scopes, Some(token_url), Some(client_id))?;
+    let token = token_from_json(
+        &body,
+        scopes,
+        Some(token_url),
+        Some(client_id),
+        Some(TokenGrantType::AuthorizationCode),
+    )?;
     save_token(agent_url, &token)?;
     Ok(token)
 }
@@ -572,6 +608,7 @@ async fn device_code_flow(
         scopes: scopes.to_vec(),
         token_url: Some(token_url.to_string()),
         client_id: Some(client_id.to_string()),
+        grant_type: Some(TokenGrantType::DeviceCode),
     };
     save_token(agent_url, &token)?;
     Ok(token)
@@ -585,9 +622,12 @@ async fn client_credentials_flow(
     scopes: &[String],
     agent_url: &str,
 ) -> Result<Token> {
-    let secret = std::env::var("A2A_CLIENT_SECRET").map_err(|_| {
-        A2aCliError::Auth("client credentials requires A2A_CLIENT_SECRET".to_string())
-    })?;
+    let secret = std::env::var("A2A_CLIENT_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            A2aCliError::Auth("client credentials requires A2A_CLIENT_SECRET".to_string())
+        })?;
 
     let http_client = oauth2_reqwest::ClientBuilder::new()
         .redirect(oauth2_reqwest::redirect::Policy::none())
@@ -621,6 +661,7 @@ async fn client_credentials_flow(
         scopes: scopes.to_vec(),
         token_url: Some(token_url.to_string()),
         client_id: Some(client_id.to_string()),
+        grant_type: Some(TokenGrantType::ClientCredentials),
     };
     save_token(agent_url, &token)?;
     Ok(token)
@@ -633,6 +674,7 @@ fn token_from_json(
     scopes: &[String],
     token_url: Option<&str>,
     client_id: Option<&str>,
+    grant_type: Option<TokenGrantType>,
 ) -> Result<Token> {
     let access_token = body
         .get("access_token")
@@ -662,6 +704,7 @@ fn token_from_json(
         client_id: client_id
             .filter(|id| !id.trim().is_empty())
             .map(str::to_string),
+        grant_type,
     })
 }
 
@@ -1085,6 +1128,7 @@ mod refresh_tests {
             scopes: vec!["openid".to_string()],
             token_url: token_url.map(str::to_string),
             client_id: None,
+            grant_type: Some(TokenGrantType::AuthorizationCode),
         }
     }
 
@@ -1097,6 +1141,7 @@ mod refresh_tests {
             scopes: vec!["openid".to_string()],
             token_url: Some("https://auth.example.com/token".to_string()),
             client_id: None,
+            grant_type: Some(TokenGrantType::AuthorizationCode),
         }
     }
 
@@ -1127,9 +1172,10 @@ mod refresh_tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn expired_no_refresh_token_returns_none() {
+    async fn expired_no_refresh_token_without_secret_returns_auth_error() {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _secret = EnvGuard::set("A2A_CLIENT_SECRET", "");
 
         save_token(
             "http://no-refresh.test/",
@@ -1137,15 +1183,46 @@ mod refresh_tests {
         )
         .unwrap();
 
-        let result = refresh_if_expired("http://no-refresh.test/", "client-id")
+        let err = refresh_if_expired("http://no-refresh.test/", "client-id")
             .await
-            .unwrap();
-        assert!(result.is_none());
+            .unwrap_err();
+        assert!(err.to_string().contains("has no refresh token"));
     }
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn expired_no_token_url_returns_none() {
+    async fn expired_client_credentials_token_renews_without_refresh_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _secret = EnvGuard::set("A2A_CLIENT_SECRET", "client-secret");
+
+        let (server_url, server) = spawn_token_server(
+            200,
+            r#"{"access_token":"new-client-access","expires_in":3600,"token_type":"Bearer"}"#,
+        )
+        .await;
+
+        let mut token = expired_token(None, Some(&server_url));
+        token.grant_type = Some(TokenGrantType::ClientCredentials);
+        save_token("http://client-credentials.test/", &token).unwrap();
+
+        let result = refresh_if_expired("http://client-credentials.test/", "client-id")
+            .await
+            .unwrap();
+        assert_eq!(result, Some("new-client-access".to_string()));
+
+        let stored = load_token("http://client-credentials.test/")
+            .unwrap()
+            .expect("renewed token should be saved");
+        assert_eq!(stored.access_token, "new-client-access");
+        assert_eq!(stored.grant_type, Some(TokenGrantType::ClientCredentials));
+
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn expired_no_token_url_returns_auth_error() {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
 
@@ -1155,10 +1232,13 @@ mod refresh_tests {
         )
         .unwrap();
 
-        let result = refresh_if_expired("http://no-token-url.test/", "client-id")
+        let err = refresh_if_expired("http://no-token-url.test/", "client-id")
             .await
-            .unwrap();
-        assert!(result.is_none());
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("token endpoint URL is unavailable")
+        );
     }
 
     #[tokio::test]
@@ -1188,6 +1268,7 @@ mod refresh_tests {
         let stored = load_token("http://refresh-ok.test/").unwrap().unwrap();
         assert_eq!(stored.access_token, "new-access");
         assert_eq!(stored.refresh_token.as_deref(), Some("new-refresh"));
+        assert_eq!(stored.grant_type, Some(TokenGrantType::AuthorizationCode));
 
         let _ = server.await;
     }
@@ -1223,7 +1304,7 @@ mod refresh_tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn expired_token_server_error_returns_none_with_warning() {
+    async fn expired_token_server_error_returns_auth_error() {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
 
@@ -1235,10 +1316,10 @@ mod refresh_tests {
         )
         .unwrap();
 
-        let result = refresh_if_expired("http://refresh-fail.test/", "client-id")
+        let err = refresh_if_expired("http://refresh-fail.test/", "client-id")
             .await
-            .unwrap();
-        assert!(result.is_none(), "server error must return None");
+            .unwrap_err();
+        assert!(err.to_string().contains("token refresh returned HTTP"));
 
         let _ = server.await;
     }
@@ -1264,6 +1345,7 @@ mod refresh_tests {
             "original-refresh",
             &["openid".to_string()],
             "http://preserve-refresh.test/",
+            Some(TokenGrantType::AuthorizationCode),
         )
         .await
         .unwrap();
@@ -1296,6 +1378,7 @@ mod refresh_tests {
             "original-refresh",
             &["openid".to_string()],
             "http://rotated-refresh.test/",
+            Some(TokenGrantType::AuthorizationCode),
         )
         .await
         .unwrap();
@@ -1324,6 +1407,7 @@ mod refresh_tests {
             "bad-refresh",
             &[],
             "http://do-refresh-fail.test/",
+            Some(TokenGrantType::AuthorizationCode),
         )
         .await;
 

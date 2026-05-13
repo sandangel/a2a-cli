@@ -145,10 +145,10 @@ a2a auth login
 a2a send "Hello, agent!"
 
 # Get just the reply (artifacts hold task output per A2A spec)
-a2a send "What is 2+2?" --fields .artifacts
+a2a send "What is 2+2?" --fields "(.task // .).artifacts"
 
 # Multi-turn conversation — capture contextId then continue with it
-a2a send "My name is San." --fields "{contextId,artifacts}"
+a2a send "My name is San." --fields "(.task // .) | {contextId,artifacts}"
 a2a send "What is my name?" --context-id <contextId>
 ```
 
@@ -191,7 +191,7 @@ a2a --format table agent list
 a2a --format table auth status
 
 # AI tools — extract just what you need
-a2a send "Hello" --fields .artifacts
+a2a send "Hello" --fields "(.task // .).artifacts"
 a2a send "Hello" --compact
 ```
 
@@ -218,6 +218,8 @@ a2a auth logout --agent example
 OAuth client IDs can be saved per agent with
 `a2a agent update <alias> --client-id <id>`, passed to login with
 `--client-id`, or supplied through `A2A_CLIENT_ID`.
+Agent-facing commands use the stored token and renew expired tokens automatically
+when possible. Client Credentials renewal requires `A2A_CLIENT_SECRET`.
 
 ## Environment variables
 
