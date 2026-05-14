@@ -30,14 +30,17 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-latest
+            # Pin away from `macos-latest`; it moves between images over time.
+            runner: macos-15
             archive: tar.gz
+            cross: false
           - target: x86_64-apple-darwin
             # Keep Intel macOS builds on an Intel image. `macos-latest` can move
             # under us, while GitHub provides `macos-15-intel` for x64 jobs until
             # the hosted Intel macOS images are retired.
             runner: macos-15-intel
             archive: tar.gz
+            cross: false
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
@@ -49,6 +52,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
+            cross: false
           - target: x86_64-unknown-linux-musl
             runner: ubuntu-latest
             archive: tar.gz
