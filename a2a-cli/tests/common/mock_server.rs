@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     extract::Path,
+    http::StatusCode,
     response::{IntoResponse, Response, Sse, sse::Event},
     routing::{get, post},
 };
@@ -88,8 +89,13 @@ fn build_router(variant: MockVariant, port: u16) -> Router {
 pub const MOCK_TASK_ID: &str = "test-task-id-42";
 pub const MOCK_CTX_ID: &str = "test-ctx-id-42";
 pub const MOCK_CFG_ID: &str = "test-config-id-1";
+pub const MOCK_FOLLOW_UP_TEXT: &str = "Follow up using the returned context.";
 
 fn mock_task() -> Task {
+    mock_task_with_text("Mock reply from agent.")
+}
+
+fn mock_task_with_text(text: &str) -> Task {
     Task {
         id: MOCK_TASK_ID.to_string(),
         context_id: MOCK_CTX_ID.to_string(),
@@ -100,7 +106,7 @@ fn mock_task() -> Task {
                 context_id: Some(MOCK_CTX_ID.to_string()),
                 task_id: Some(MOCK_TASK_ID.to_string()),
                 role: Role::Agent,
-                parts: vec![Part::text("Mock reply from agent.")],
+                parts: vec![Part::text(text.to_string())],
                 metadata: None,
                 extensions: None,
                 reference_task_ids: None,
@@ -111,7 +117,7 @@ fn mock_task() -> Task {
             artifact_id: "art-1".to_string(),
             name: None,
             description: None,
-            parts: vec![Part::text("Mock reply from agent.")],
+            parts: vec![Part::text(text.to_string())],
             metadata: None,
             extensions: None,
         }]),
@@ -155,6 +161,19 @@ fn mock_status_stream_event() -> StreamResponse {
         status: mock_task().status,
         metadata: None,
     })
+}
+
+fn mock_follow_up_task() -> Task {
+    mock_task_with_text("Follow-up accepted for exact contextId.")
+}
+
+fn checked_follow_up_task(context_id: Option<&str>) -> Result<Task, A2AError> {
+    if context_id == Some(MOCK_CTX_ID) {
+        return Ok(mock_follow_up_task());
+    }
+    Err(A2AError::invalid_params(format!(
+        "follow-up requires contextId {MOCK_CTX_ID}"
+    )))
 }
 
 // ── V1 router (backed by a2a-server) ─────────────────────────────────
@@ -214,8 +233,13 @@ impl RequestHandler for MockV1Handler {
     async fn send_message(
         &self,
         _params: &ServiceParams,
-        _req: SendMessageRequest,
+        req: SendMessageRequest,
     ) -> Result<SendMessageResponse, A2AError> {
+        if req.message.text() == Some(MOCK_FOLLOW_UP_TEXT) {
+            return Ok(SendMessageResponse::Task(checked_follow_up_task(
+                req.message.context_id.as_deref(),
+            )?));
+        }
         Ok(SendMessageResponse::Task(mock_task()))
     }
 
@@ -344,6 +368,10 @@ impl RequestHandler for MockV1Handler {
 // ── V0.3 shared task JSON ─────────────────────────────────────────────
 
 fn v03_task_json() -> Value {
+    v03_task_json_with_text("Mock reply from agent.")
+}
+
+fn v03_task_json_with_text(text: &str) -> Value {
     json!({
         "id": MOCK_TASK_ID,
         "contextId": MOCK_CTX_ID,
@@ -351,10 +379,14 @@ fn v03_task_json() -> Value {
         "artifacts": [
             {
                 "artifactId": "art-1",
-                "parts": [{ "kind": "text", "text": "Mock reply from agent." }]
+                "parts": [{ "kind": "text", "text": text }]
             }
         ]
     })
+}
+
+fn v03_follow_up_task_json() -> Value {
+    v03_task_json_with_text("Follow-up accepted for exact contextId.")
 }
 
 fn v03_canceled_task_json() -> Value {
@@ -387,6 +419,33 @@ fn single_sse_response(
 
 fn jsonrpc_ok(id: &Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
+
+fn jsonrpc_error(id: &Value, message: impl Into<String>) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32602,
+            "message": message.into(),
+        }
+    })
+}
+
+fn message_text(body: &Value) -> Option<&str> {
+    body.pointer("/message/parts/0/text")
+        .and_then(|v| v.as_str())
+}
+
+fn message_context_id<'a>(body: &'a Value, key: &str) -> Option<&'a str> {
+    body.get("message")?.get(key)?.as_str()
+}
+
+fn checked_v03_follow_up_task(body: &Value, context_key: &str) -> Result<Value, String> {
+    if message_context_id(body, context_key) == Some(MOCK_CTX_ID) {
+        return Ok(v03_follow_up_task_json());
+    }
+    Err(format!("follow-up requires contextId {MOCK_CTX_ID}"))
 }
 
 // ── V0.3 JSON-RPC router ──────────────────────────────────────────────
@@ -427,6 +486,16 @@ fn v03_jsonrpc_card_json(port: u16) -> Value {
 async fn v03_jsonrpc_handler(Json(req): Json<Value>) -> Json<Value> {
     let id = req.get("id").cloned().unwrap_or(Value::Null);
     let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let params = req.get("params").unwrap_or(&Value::Null);
+
+    if matches!(method, "message/send" | "tasks/send")
+        && message_text(params) == Some(MOCK_FOLLOW_UP_TEXT)
+    {
+        return match checked_v03_follow_up_task(params, "contextId") {
+            Ok(result) => Json(jsonrpc_ok(&id, result)),
+            Err(message) => Json(jsonrpc_error(&id, message)),
+        };
+    }
 
     let result = match method {
         "message/send" | "tasks/send" => v03_task_json(),
@@ -482,6 +551,10 @@ fn v03_rest_card_json(port: u16) -> Value {
 }
 
 fn v03_rest_task_snake() -> Value {
+    v03_rest_task_snake_with_text("Mock reply from agent.")
+}
+
+fn v03_rest_task_snake_with_text(text: &str) -> Value {
     json!({
         "id": MOCK_TASK_ID,
         "context_id": MOCK_CTX_ID,
@@ -489,10 +562,14 @@ fn v03_rest_task_snake() -> Value {
         "artifacts": [
             {
                 "artifact_id": "art-1",
-                "parts": [{ "kind": "text", "text": "Mock reply from agent." }]
+                "parts": [{ "kind": "text", "text": text }]
             }
         ]
     })
+}
+
+fn v03_rest_follow_up_task_snake() -> Value {
+    v03_rest_task_snake_with_text("Follow-up accepted for exact contextId.")
 }
 
 fn v03_rest_canceled_task_snake() -> Value {
@@ -503,8 +580,18 @@ fn v03_rest_canceled_task_snake() -> Value {
     })
 }
 
-async fn v03_rest_send(_body: Option<Json<Value>>) -> Json<Value> {
-    Json(v03_rest_task_snake())
+async fn v03_rest_send(body: Option<Json<Value>>) -> Response {
+    if let Some(Json(body)) = body
+        && message_text(&body) == Some(MOCK_FOLLOW_UP_TEXT)
+    {
+        return match checked_v03_follow_up_task(&body, "context_id") {
+            Ok(_) => Json(v03_rest_follow_up_task_snake()).into_response(),
+            Err(message) => {
+                (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
+            }
+        };
+    }
+    Json(v03_rest_task_snake()).into_response()
 }
 
 async fn v03_rest_stream(

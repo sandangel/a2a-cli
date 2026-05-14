@@ -4,7 +4,9 @@ use a2a_cli::cli::Command;
 use a2a_cli::commands::task::TaskCommand;
 use a2a_cli::runner::run_to_value;
 use a2acli::{TaskIdCommand, TaskLookupCommand};
-use common::{MockServer, MockVariant, run_send, run_send_with_ctx};
+use common::{
+    MOCK_FOLLOW_UP_TEXT, MockServer, MockVariant, run_send, run_send_with_ctx, try_send_with_ctx,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────
 
@@ -33,6 +35,35 @@ async fn run_cancel_task(id: &str, base_url: &str) -> serde_json::Value {
     run_to_value(&cmd, base_url, None, None, None)
         .await
         .expect("run_cancel_task failed")
+}
+
+fn context_id_from_task(value: &serde_json::Value) -> &str {
+    value
+        .pointer("/task/contextId")
+        .or_else(|| value.get("contextId"))
+        .and_then(|v| v.as_str())
+        .expect("response should include contextId")
+}
+
+fn first_artifact_text(value: &serde_json::Value) -> &str {
+    value
+        .pointer("/task/artifacts/0/parts/0/text")
+        .or_else(|| value.pointer("/artifacts/0/parts/0/text"))
+        .and_then(|v| v.as_str())
+        .expect("response should include artifact text")
+}
+
+async fn assert_wrong_follow_up_context_is_rejected(variant: MockVariant) {
+    let server = MockServer::start(variant).await;
+    let err = try_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, "wrong-context")
+        .await
+        .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("follow-up requires contextId test-ctx-id-42"),
+        "unexpected error: {err}"
+    );
 }
 
 // ── v1 tests ──────────────────────────────────────────────────────────
@@ -66,6 +97,25 @@ mod v1 {
         let result = run_send_with_ctx("Hello", &server.base_url, "my-ctx").await;
         // The mock always returns the canned task with contextId
         assert_eq!(result["task"]["contextId"], "test-ctx-id-42");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn follow_up_uses_returned_context_id() {
+        let server = MockServer::start(MockVariant::V1).await;
+        let first = run_send("My name is San.", &server.base_url).await;
+        let context_id = context_id_from_task(&first);
+
+        let follow_up = run_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, context_id).await;
+
+        assert_eq!(
+            first_artifact_text(&follow_up),
+            "Follow-up accepted for exact contextId."
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn follow_up_rejects_wrong_context_id() {
+        assert_wrong_follow_up_context_is_rejected(MockVariant::V1).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -123,6 +173,25 @@ mod v03_jsonrpc {
         let result = run_send_with_ctx("Hello", &server.base_url, "my-ctx").await;
         // The mock returns the canned task — contextId is always present
         assert_eq!(result["contextId"], "test-ctx-id-42");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn follow_up_uses_returned_context_id() {
+        let server = MockServer::start(MockVariant::V03JsonRpc).await;
+        let first = run_send("My name is San.", &server.base_url).await;
+        let context_id = context_id_from_task(&first);
+
+        let follow_up = run_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, context_id).await;
+
+        assert_eq!(
+            first_artifact_text(&follow_up),
+            "Follow-up accepted for exact contextId."
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn follow_up_rejects_wrong_context_id() {
+        assert_wrong_follow_up_context_is_rejected(MockVariant::V03JsonRpc).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -203,6 +272,25 @@ mod v03_rest {
         assert_eq!(result["contextId"], "test-ctx-id-42");
         // The raw snake_case key must NOT be present
         assert!(result.get("context_id").is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn follow_up_uses_returned_context_id() {
+        let server = MockServer::start(MockVariant::V03Rest).await;
+        let first = run_send("My name is San.", &server.base_url).await;
+        let context_id = context_id_from_task(&first);
+
+        let follow_up = run_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, context_id).await;
+
+        assert_eq!(
+            first_artifact_text(&follow_up),
+            "Follow-up accepted for exact contextId."
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn follow_up_rejects_wrong_context_id() {
+        assert_wrong_follow_up_context_is_rejected(MockVariant::V03Rest).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
