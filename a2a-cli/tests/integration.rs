@@ -68,9 +68,9 @@ async fn assert_wrong_follow_up_context_is_rejected(variant: MockVariant) {
 
 // ── v1 tests ──────────────────────────────────────────────────────────
 
-/// For A2A v1, `run_to_value` for Send wraps the response in
-/// `{"task": {...}}` because `SendMessageResponse::Task(task)` serialises that
-/// way.  State enums use ProtoJSON strings like `"TASK_STATE_COMPLETED"`.
+/// For A2A v1, `run_to_value` for Send preserves `SendMessageResponse`, so
+/// task responses are wrapped in `{"task": {...}}`. State enums use ProtoJSON
+/// strings like `"TASK_STATE_COMPLETED"`.
 mod v1 {
     use super::*;
 
@@ -78,7 +78,6 @@ mod v1 {
     async fn send_returns_completed_task() {
         let server = MockServer::start(MockVariant::V1).await;
         let result = run_send("Hello", &server.base_url).await;
-        // SendMessageResponse::Task serialises as {"task": {...}}
         assert_eq!(result["task"]["status"]["state"], "TASK_STATE_COMPLETED");
         assert_eq!(result["task"]["id"], "test-task-id-42");
     }
@@ -102,7 +101,7 @@ mod v1 {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn follow_up_uses_returned_context_id() {
         let server = MockServer::start(MockVariant::V1).await;
-        let first = run_send("My name is San.", &server.base_url).await;
+        let first = run_send("My name is Harry Potter.", &server.base_url).await;
         let context_id = context_id_from_task(&first);
 
         let follow_up = run_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, context_id).await;
@@ -145,9 +144,8 @@ mod v1 {
 
 // ── v0.3 JSON-RPC tests ───────────────────────────────────────────────
 
-/// For v0.3, `a2a_compat::Client::call()` returns the JSON-RPC `result` field
-/// directly with no additional wrapper.  State strings are lowercase (e.g.
-/// `"completed"`) as defined by the mock.
+/// For v0.3, `a2a_compat` normalizes server responses into the same v1-facing
+/// JSON shapes used by the v1 client.
 mod v03_jsonrpc {
     use super::*;
 
@@ -155,16 +153,16 @@ mod v03_jsonrpc {
     async fn send_returns_completed_task() {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_send("Hello", &server.base_url).await;
-        assert_eq!(result["status"]["state"], "completed");
-        assert_eq!(result["id"], "test-task-id-42");
+        assert_eq!(result["task"]["status"]["state"], "TASK_STATE_COMPLETED");
+        assert_eq!(result["task"]["id"], "test-task-id-42");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn send_response_has_artifacts() {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_send("Hello", &server.base_url).await;
-        assert!(result["artifacts"].is_array());
-        assert!(!result["artifacts"].as_array().unwrap().is_empty());
+        assert!(result["task"]["artifacts"].is_array());
+        assert!(!result["task"]["artifacts"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -172,13 +170,13 @@ mod v03_jsonrpc {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_send_with_ctx("Hello", &server.base_url, "my-ctx").await;
         // The mock returns the canned task — contextId is always present
-        assert_eq!(result["contextId"], "test-ctx-id-42");
+        assert_eq!(result["task"]["contextId"], "test-ctx-id-42");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn follow_up_uses_returned_context_id() {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
-        let first = run_send("My name is San.", &server.base_url).await;
+        let first = run_send("My name is Harry Potter.", &server.base_url).await;
         let context_id = context_id_from_task(&first);
 
         let follow_up = run_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, context_id).await;
@@ -207,14 +205,14 @@ mod v03_jsonrpc {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_get_task("test-task-id-42", &server.base_url).await;
         assert_eq!(result["id"], "test-task-id-42");
-        assert_eq!(result["status"]["state"], "completed");
+        assert_eq!(result["status"]["state"], "TASK_STATE_COMPLETED");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancel_task_returns_canceled_state() {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_cancel_task("test-task-id-42", &server.base_url).await;
-        assert_eq!(result["status"]["state"], "canceled");
+        assert_eq!(result["status"]["state"], "TASK_STATE_CANCELED");
     }
 
     /// list-tasks is not supported over v0.3 JSON-RPC.
@@ -241,9 +239,8 @@ mod v03_jsonrpc {
 
 // ── v0.3 REST tests ───────────────────────────────────────────────────
 
-/// For v0.3 REST, `a2a_compat::Client::rest_request()` converts
-/// snake_case response keys to camelCase before returning.  So `context_id`
-/// in the mock response becomes `contextId` in the returned Value.
+/// For v0.3 REST, `a2a_compat` converts snake_case wire keys to camelCase and
+/// normalizes responses into v1-facing JSON.
 mod v03_rest {
     use super::*;
 
@@ -251,16 +248,16 @@ mod v03_rest {
     async fn send_returns_completed_task() {
         let server = MockServer::start(MockVariant::V03Rest).await;
         let result = run_send("Hello", &server.base_url).await;
-        assert_eq!(result["status"]["state"], "completed");
-        assert_eq!(result["id"], "test-task-id-42");
+        assert_eq!(result["task"]["status"]["state"], "TASK_STATE_COMPLETED");
+        assert_eq!(result["task"]["id"], "test-task-id-42");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn send_response_has_artifacts() {
         let server = MockServer::start(MockVariant::V03Rest).await;
         let result = run_send("Hello", &server.base_url).await;
-        assert!(result["artifacts"].is_array());
-        assert!(!result["artifacts"].as_array().unwrap().is_empty());
+        assert!(result["task"]["artifacts"].is_array());
+        assert!(!result["task"]["artifacts"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -269,15 +266,15 @@ mod v03_rest {
         // The mock returns snake_case `context_id`; a2a_compat converts it to
         // `contextId` before returning the Value.
         let result = run_send_with_ctx("Hello", &server.base_url, "my-ctx").await;
-        assert_eq!(result["contextId"], "test-ctx-id-42");
+        assert_eq!(result["task"]["contextId"], "test-ctx-id-42");
         // The raw snake_case key must NOT be present
-        assert!(result.get("context_id").is_none());
+        assert!(result["task"].get("context_id").is_none());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn follow_up_uses_returned_context_id() {
         let server = MockServer::start(MockVariant::V03Rest).await;
-        let first = run_send("My name is San.", &server.base_url).await;
+        let first = run_send("My name is Harry Potter.", &server.base_url).await;
         let context_id = context_id_from_task(&first);
 
         let follow_up = run_send_with_ctx(MOCK_FOLLOW_UP_TEXT, &server.base_url, context_id).await;
@@ -306,14 +303,14 @@ mod v03_rest {
         let server = MockServer::start(MockVariant::V03Rest).await;
         let result = run_get_task("test-task-id-42", &server.base_url).await;
         assert_eq!(result["id"], "test-task-id-42");
-        assert_eq!(result["status"]["state"], "completed");
+        assert_eq!(result["status"]["state"], "TASK_STATE_COMPLETED");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancel_task_returns_canceled_state() {
         let server = MockServer::start(MockVariant::V03Rest).await;
         let result = run_cancel_task("test-task-id-42", &server.base_url).await;
-        assert_eq!(result["status"]["state"], "canceled");
+        assert_eq!(result["status"]["state"], "TASK_STATE_CANCELED");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -332,9 +329,14 @@ mod v03_rest {
         let result = run_to_value(&cmd, &server.base_url, None, None, None)
             .await
             .expect("list_tasks failed");
-        // The REST response is {"tasks": [...]} which after camelCase conversion
-        // remains {"tasks": [...]}
         assert!(result["tasks"].is_array());
+        assert_eq!(
+            result["tasks"][0]["status"]["state"],
+            "TASK_STATE_COMPLETED"
+        );
+        assert_eq!(result["nextPageToken"], "");
+        assert_eq!(result["pageSize"], 1);
+        assert_eq!(result["totalSize"], 1);
     }
 }
 
@@ -423,18 +425,17 @@ mod doc_examples {
     }
 
     // ── examples::SEND_FIELDS_ARTIFACTS ──────────────────────────────────
-    // Source: a2a send "Summarise this PR" --fields artifacts
+    // Source: a2a send "Summarise this PR" --fields .task.artifacts
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn send_fields_artifacts_v03() {
         let (text, _) = parse_send_example(examples::SEND_FIELDS_ARTIFACTS);
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_send(text, &server.base_url).await;
-        // v0.3: artifacts at top level
         assert!(
-            result["artifacts"].is_array(),
+            result["task"]["artifacts"].is_array(),
             "expected artifacts array, got: {result}"
         );
-        assert!(!result["artifacts"].as_array().unwrap().is_empty());
+        assert!(!result["task"]["artifacts"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -442,20 +443,19 @@ mod doc_examples {
         let (text, _) = parse_send_example(examples::SEND_FIELDS_ARTIFACTS);
         let server = MockServer::start(MockVariant::V1).await;
         let result = run_send(text, &server.base_url).await;
-        // v1: wrapped in {"task": {...}}
         assert!(result["task"]["artifacts"].is_array());
         assert!(!result["task"]["artifacts"].as_array().unwrap().is_empty());
     }
 
     // ── examples::SEND_FIELDS_STATE_AND_ARTIFACTS ────────────────────────
-    // Source: a2a send "Summarise this PR" --fields status.state,artifacts
+    // Source: a2a send "Summarise this PR" --fields ".task | {status,artifacts}"
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn send_fields_state_and_artifacts_v03() {
         let (text, _) = parse_send_example(examples::SEND_FIELDS_STATE_AND_ARTIFACTS);
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_send(text, &server.base_url).await;
-        assert!(result["status"]["state"].is_string());
-        assert!(result["artifacts"].is_array());
+        assert!(result["task"]["status"]["state"].is_string());
+        assert!(result["task"]["artifacts"].is_array());
     }
 
     // ── examples::TASK_GET_FIELDS_STATE ──────────────────────────────────

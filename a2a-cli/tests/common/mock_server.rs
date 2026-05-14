@@ -8,12 +8,11 @@ use std::sync::Arc;
 
 use a2a::{
     A2AError, AgentCapabilities, AgentCard, AgentSkill, Artifact, CancelTaskRequest,
-    CreateTaskPushNotificationConfigRequest, DeleteTaskPushNotificationConfigRequest,
-    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
-    ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse,
-    ListTasksRequest, ListTasksResponse, Message, Part, Role, SendMessageRequest,
-    SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task, TaskPushNotificationConfig,
-    TaskState, TaskStatus, TaskStatusUpdateEvent,
+    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
+    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
+    ListTaskPushNotificationConfigsResponse, ListTasksRequest, ListTasksResponse, Message, Part,
+    Role, SendMessageRequest, SendMessageResponse, StreamResponse, SubscribeToTaskRequest, Task,
+    TaskPushNotificationConfig, TaskState, TaskStatus, TaskStatusUpdateEvent,
 };
 use a2a_client::BoxStream;
 use a2a_server::{RequestHandler, ServiceParams};
@@ -143,13 +142,11 @@ fn mock_canceled_task() -> Task {
 
 fn mock_push_config(task_id: &str) -> TaskPushNotificationConfig {
     TaskPushNotificationConfig {
+        url: "http://127.0.0.1:19999/callback".to_string(),
+        id: Some(MOCK_CFG_ID.to_string()),
         task_id: task_id.to_string(),
-        config: a2a::PushNotificationConfig {
-            url: "http://127.0.0.1:19999/callback".to_string(),
-            id: Some(MOCK_CFG_ID.to_string()),
-            token: None,
-            authentication: None,
-        },
+        token: None,
+        authentication: None,
         tenant: None,
     }
 }
@@ -295,9 +292,12 @@ impl RequestHandler for MockV1Handler {
     async fn create_push_config(
         &self,
         _params: &ServiceParams,
-        req: CreateTaskPushNotificationConfigRequest,
+        req: TaskPushNotificationConfig,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        Ok(mock_push_config(&req.task_id))
+        Ok(TaskPushNotificationConfig {
+            id: req.id.or_else(|| Some(MOCK_CFG_ID.to_string())),
+            ..req
+        })
     }
 
     async fn get_push_config(

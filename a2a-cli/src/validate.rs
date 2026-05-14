@@ -452,6 +452,11 @@ mod tests {
     }
 
     #[test]
+    fn oauth_client_id_cimd_http_url_ok() {
+        assert!(validate_oauth_client_id("http://cimd.example.com/clients/a2a-cli").is_ok());
+    }
+
+    #[test]
     fn oauth_client_id_empty_rejected() {
         assert!(validate_oauth_client_id("").is_err());
     }

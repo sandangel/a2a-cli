@@ -13,9 +13,9 @@
 
 ## Rules of Engagement for AI Agents
 
-- **Read the answer from `artifacts`** — per the A2A spec, task outputs MUST be returned in `artifacts`. `status.message` is for in-progress communication only (e.g. `input-required` prompts), not final results.
-- **Use `--fields .artifacts`** for concise extraction of the reply; use `--format table` for human-readable output.
-- **Check `status.state`** to understand task state: `completed`, `input-required`, `failed`, etc.
+- **Read the answer from `task.artifacts`** — `a2a send` returns A2A v1-facing `SendMessageResponse` JSON for all supported server versions. v0.3 wire responses are normalized by `a2a-compat`. `task.status.message` is for in-progress communication only (e.g. `TASK_STATE_INPUT_REQUIRED` prompts), not final results.
+- **Use `--fields .task.artifacts`** for concise extraction of the reply; use `--format table` for human-readable output.
+- **Check `task.status.state`** to understand task state: `TASK_STATE_COMPLETED`, `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_FAILED`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
 - **Confirm before canceling tasks** — `a2a task cancel` is destructive.
 - **Use `a2a schema`** to inspect data structures before crafting messages.
@@ -49,10 +49,10 @@ a2a auth login --client-id <id>
 a2a send "Hello, agent!"
 
 # Get just the reply artifacts
-a2a send "What is the status?" --fields .artifacts
+a2a send "What is the status?" --fields .task.artifacts
 
 # Multi-turn conversation
-a2a send "My name is San." --fields "{contextId,artifacts}"
+a2a send "My name is Harry Potter." --fields .task.contextId
 a2a send "What is my name?" --context-id <contextId from above>
 ```
 
@@ -91,7 +91,7 @@ a2a [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--comp
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`; use `table` for human-readable) |
 | `--compact` | Single-line JSON (only with `--format json`) |
-| `--fields <jq>` | jq filter applied to output (e.g. `.artifacts[0]`); AI tools |
+| `--fields <jq>` | jq filter applied to output (e.g. `.task.artifacts[0]`); AI tools |
 | `--transport jsonrpc\|http-json` | Override transport (default: auto from agent card) |
 | `--tenant <id>` | Optional tenant ID forwarded to A2A requests |
 | `--bearer-token <token>` | Static bearer token, bypasses OAuth |
@@ -104,15 +104,15 @@ a2a --format table agent list
 a2a --format table auth status
 
 # AI tools — extract just what you need
-a2a send "Hello" --fields .artifacts        # task output
-a2a send "Hello" --fields .status.state     # just the state
+a2a send "Hello" --fields .task.artifacts        # task output
+a2a send "Hello" --fields .task.status.state     # just the state
 a2a send "Hello" --compact                  # single-line JSON
 ```
 
 Multi-agent output is always NDJSON — one compact JSON line per agent, each tagged with `agent` and `agent_url`:
 
 ```bash
-a2a --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
+a2a --all send "Status?" --fields "{agent,state:.task.status.state}"
 ```
 
 ### Source Layout
@@ -156,8 +156,11 @@ Each registered agent alias has its own OAuth config and token:
 - Tokens stored in OS keychain (service: `a2a-cli`) keyed by agent URL hostname:port
 - Fallback encrypted files live under `~/.config/a2a-cli/tokens/<host>.enc`
 - Backend: `A2A_KEYRING_BACKEND=keyring` (default) or `file` (headless/Docker)
-- Flow auto-detected from agent card: AuthCode+PKCE > DeviceCode > ClientCredentials
+- Supported auth modes: no auth, static bearer/API token, OAuth `authorizationCode` + PKCE, OAuth `deviceCode`, OAuth `clientCredentials`, and refresh-token renewal when the token endpoint issues `refresh_token`
+- Unsupported OAuth grants: `implicit`, password
+- Flow auto-detected from agent card in declaration order; generated cards should prefer AuthCode+PKCE > DeviceCode > ClientCredentials
 - OAuth client ID precedence: `a2a auth login --client-id <id>` > `A2A_CLIENT_ID` > per-agent config from `a2a agent add/update --client-id <id>`
+- CIMD OAuth is supported; its client ID is an HTTP URL, passed unchanged as the `--client-id` / `A2A_CLIENT_ID` value.
 
 ### A2A Two-Layer Card Protocol
 
@@ -181,47 +184,54 @@ The Rust A2A SDK lives in `a2a-rs/` (git submodule, read-only). Key path depende
 
 ## Response Shape
 
-`a2a send` wraps the A2A `message/send` operation. The agent decides what to return:
+`a2a send` wraps the A2A `message/send` operation. The response is an A2A
+`SendMessageResponse`: either `{ "task": ... }` or `{ "message": ... }`.
+Legacy A2A v0.3 wire responses are normalized by `a2a-compat` to the same
+v1-facing shape.
 
 ### Task response (most agents)
 
-Output is in `artifacts`. `status.message` is only set for in-progress communication (e.g. `input-required`), not final results.
+Output is in `task.artifacts`. `task.status.message` is only set for in-progress communication (e.g. `TASK_STATE_INPUT_REQUIRED`), not final results.
 
 ```json
 {
-  "id":        "task-abc123",
-  "contextId": "ctx-abc123",
-  "status": { "state": "completed" },
-  "artifacts": [
-    {
-      "artifactId": "...",
-      "parts": [{ "kind": "text", "text": "The agent's answer" }]
-    }
-  ]
+  "task": {
+    "id":        "task-abc123",
+    "contextId": "ctx-abc123",
+    "status": { "state": "TASK_STATE_COMPLETED" },
+    "artifacts": [
+      {
+        "artifactId": "...",
+        "parts": [{ "text": "The agent's answer" }]
+      }
+    ]
+  }
 }
 ```
 
-| `status.state` | Meaning |
+| `task.status.state` | Meaning |
 |----------------|---------|
-| `submitted` | Queued, not started |
-| `working` | In progress — poll with `a2a task get <id>` |
-| `completed` | Finished — read `artifacts[*].parts` for the answer |
-| `failed` | Error — read `status.message` for details |
-| `input-required` | Agent needs a reply — read `status.message.parts`, then `a2a send --task-id <id> "..."` |
-| `canceled` | Canceled |
+| `TASK_STATE_SUBMITTED` | Queued, not started |
+| `TASK_STATE_WORKING` | In progress — poll with `a2a task get <id>` |
+| `TASK_STATE_COMPLETED` | Finished — read `task.artifacts[*].parts` for the answer |
+| `TASK_STATE_FAILED` | Error — read `task.status.message` for details |
+| `TASK_STATE_INPUT_REQUIRED` | Agent needs a reply — read `task.status.message.parts`, then `a2a send --task-id <id> "..."` |
+| `TASK_STATE_CANCELED` | Canceled |
 
 ### Message response (simple agents)
 
-Some agents return a direct **Message** instead of a Task. The reply is in `parts` at the top level:
+Some agents return a direct **Message** instead of a Task. The reply is in `message.parts`:
 
 ```json
 {
-  "role":  "agent",
-  "parts": [{ "kind": "text", "text": "The agent's answer" }]
+  "message": {
+    "role":  "ROLE_AGENT",
+    "parts": [{ "text": "The agent's answer" }]
+  }
 }
 ```
 
-Use `--fields .parts` to extract the reply. Multi-agent results include `agent` and `agent_url` at the top level.
+Use `--fields .message.parts` to extract the reply. Multi-agent results include `agent` and `agent_url` at the top level.
 
 ## Skills
 
@@ -282,21 +292,10 @@ Current coverage: `error`, `validate`, `printer`, `config`, `auth`, `runner`, pl
 | `A2A_CONFIG_DIR` | Override config directory, defaulting to `~/.config/a2a-cli` |
 | `A2A_BINARY_PATH` | Override binary path (for npm wrapper) |
 
-## Shell Completions
+## Install And Shell Completions
 
-```bash
-# bash — add to ~/.bashrc
-source <(a2a completions bash)
-
-# zsh — add to ~/.zshrc
-mkdir -p ~/.zsh/completions
-a2a completions zsh > ~/.zsh/completions/_a2a
-# fpath=(~/.zsh/completions $fpath)
-# autoload -Uz compinit && compinit
-
-# fish
-a2a completions fish > ~/.config/fish/completions/a2a.fish
-```
+Cargo installs, direct binary downloads, source builds, Rust API usage, and
+shell completion setup are documented in [`INSTALL.md`](INSTALL.md).
 
 ## Error Exit Codes
 

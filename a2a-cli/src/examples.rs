@@ -16,18 +16,17 @@
 // ── Reading the reply ─────────────────────────────────────────────────
 
 /// Extract only the reply artifacts — preferred for AI tools.
-pub const SEND_FIELDS_ARTIFACTS: &str =
-    r#"a2a send "Summarise this PR" --fields "(.task // .).artifacts""#;
+pub const SEND_FIELDS_ARTIFACTS: &str = r#"a2a send "Summarise this PR" --fields .task.artifacts"#;
 
 /// Extract both state and reply in one call.
 pub const SEND_FIELDS_STATE_AND_ARTIFACTS: &str =
-    r#"a2a send "Summarise this PR" --fields "(.task // .) | {status,artifacts}""#;
+    r#"a2a send "Summarise this PR" --fields ".task | {status,artifacts}""#;
 
 // ── Multi-turn conversation ───────────────────────────────────────────
 
 /// Start a conversation — capture the contextId from the response.
 pub const SEND_CAPTURE_CONTEXT: &str =
-    r#"a2a send "My name is San." --fields "(.task // .) | {contextId,artifacts}""#;
+    r#"a2a send "My name is Harry Potter." --fields .task.contextId"#;
 
 // ── Task management ───────────────────────────────────────────────────
 
@@ -40,4 +39,4 @@ pub const TASK_LIST_STATUS_WORKING: &str = r#"a2a task list --status working"#;
 // ── Output formatting ─────────────────────────────────────────────────
 
 /// Compact extraction of id and status together.
-pub const SEND_FIELDS_ID_STATE: &str = r#"a2a send "Hello" --fields "(.task // .) | {id,status}""#;
+pub const SEND_FIELDS_ID_STATE: &str = r#"a2a send "Hello" --fields ".task | {id,status}""#;

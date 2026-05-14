@@ -28,9 +28,9 @@ path = "src/lib.rs"
 
 [dependencies]
 # A2A protocol (submodule path deps — a2a-rs workspace resolves their internal deps)
-a2a        = { package = "a2a-lf",        version = "0.2.4",  path = "../a2a-rs/a2a" }
-a2a-client = { package = "a2a-client-lf", version = "0.1.13", path = "../a2a-rs/a2a-client" }
-a2acli     = { package = "a2a-cli",       version = "0.1.0",  path = "../a2a-rs/a2acli" }
+a2a        = { package = "a2a-lf",        version = "0.3.0",  path = "../a2a-rs/a2a" }
+a2a-client = { package = "a2a-client-lf", version = "0.1.16", path = "../a2a-rs/a2a-client" }
+a2acli     = { package = "a2a-cli",       version = "0.1.3",  path = "../a2a-rs/a2acli" }
 
 # A2A v0.3 backward-compatibility layer
 a2a-compat = { package = "a2a-protocol-compat", version = "0.0.0", path = "../a2a-compat" }
@@ -73,9 +73,6 @@ jaq-core = "3"
 jaq-std  = { version = "3", features = ["std", "format", "math", "log", "time", "regex"] }
 jaq-json = { version = "2", features = ["serde"] }
 
-# UUID
-uuid = { version = "1", features = ["v4"] }
-
 # File system
 tempfile = "3"
 dirs     = "6"
@@ -90,8 +87,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [build-dependencies]
 protoc-bin-vendored = "3"
-prost-reflect       = "0.14"
-prost-types         = "0.13"
+prost-reflect       = "0.16"
+prost-types         = "0.14"
 serde_json          = "1"
 
 [dev-dependencies]
@@ -99,14 +96,6 @@ serial_test  = "3"
 axum         = { workspace = true }
 a2a-server   = { package = "a2a-server-lf", path = "../a2a-rs/a2a-server" }
 async-trait  = "0.1"
-
-# ── Platform-specific OpenSSL (for cross-compilation) ────────────────
-# a2a-client-lf (a2a-rs, read-only) declares reqwest without
-# default-features = false, so reqwest's native-tls (openssl) is pulled in
-# via feature unification. Vendoring ensures cross-compiled Linux targets
-# can build without system OpenSSL headers.
-[target.'cfg(target_os = "linux")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
 
 # ── Platform-specific keyring backends ───────────────────────────────
 # Without explicit features, keyring v3 uses an in-process mock (no persistence).

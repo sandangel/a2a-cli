@@ -19,9 +19,9 @@ all = "deny"
 
 [dependencies]
 # A2A v1 types — normalize_card returns AgentCard
-a2a    = { package = "a2a-lf", version = "0.2.4", path = "../a2a-rs/a2a" }
+a2a    = { package = "a2a-lf", version = "0.3.0", path = "../a2a-rs/a2a" }
 # CLI arg structs — for From<&MessageCommand> impl on MessageParams
-a2acli = { package = "a2a-cli", version = "0.1.0", path = "../a2a-rs/a2acli" }
+a2acli = { package = "a2a-cli", version = "0.1.3", path = "../a2a-rs/a2acli" }
 
 # HTTP
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-native-roots"] }
@@ -38,4 +38,4 @@ serde_json = "1"
 thiserror = "2"
 
 # UUID for JSON-RPC request IDs
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v7"] }

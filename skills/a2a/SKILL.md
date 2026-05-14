@@ -28,50 +28,58 @@ a2a agent add <alias> <url>   # register once
 a2a agent use <alias>         # set active agent
 a2a auth login                # authenticate (auto-detects OAuth flow)
 a2a auth login --client-id <id>
-a2a send "your request"       # send — returns Task JSON when complete
+a2a send "your request"       # send — returns SendMessageResponse JSON
 ```
 
 ## Reading the Reply
 
-Per the A2A spec, task outputs are in `artifacts`. `status.message` is only set
-for in-progress communication (e.g. `input-required`), not for the final answer.
-Always check `status.state` first.
+`a2a send` returns A2A v1-facing `SendMessageResponse` JSON for all supported
+server versions. Most ADK-backed agents return `{ "task": ... }`, with final
+task output in `task.artifacts`. Legacy A2A v0.3 wire responses are normalized
+by `a2a-compat`.
+`task.status.message` is only set for in-progress communication
+(e.g. `TASK_STATE_INPUT_REQUIRED`), not for the final answer. Always check
+`task.status.state` first.
 
 ```bash
 # Full JSON response (default)
 a2a send "Summarise this PR"
 
 # Extract just the reply — preferred for AI tools
-a2a send "Summarise this PR" --fields "(.task // .).artifacts"
+a2a send "Summarise this PR" --fields .task.artifacts
 
 # Extract state and reply together
-a2a send "Summarise this PR" --fields "(.task // .) | {status,artifacts}"
+a2a send "Summarise this PR" --fields ".task | {status,artifacts}"
 ```
 
 **Response shape (Task — most agents):**
 ```json
 {
-  "id": "task-abc123",
-  "contextId": "ctx-abc123",
-  "status": { "state": "completed" },
-  "artifacts": [
-    {
-      "artifactId": "...",
-      "parts": [{"kind": "text", "text": "The agent's answer"}]
-    }
-  ]
+  "task": {
+    "id": "task-abc123",
+    "contextId": "ctx-abc123",
+    "status": { "state": "TASK_STATE_COMPLETED" },
+    "artifacts": [
+      {
+        "artifactId": "...",
+        "parts": [{"text": "The agent's answer"}]
+      }
+    ]
+  }
 }
 ```
 
 **Response shape (Message — simple stateless agents):**
 ```json
 {
-  "role": "agent",
-  "parts": [{"kind": "text", "text": "The agent's answer"}]
+  "message": {
+    "role": "ROLE_AGENT",
+    "parts": [{"text": "The agent's answer"}]
+  }
 }
 ```
 
-Use `--fields .parts` when the agent returns a direct Message.
+Use `--fields .message.parts` when the agent returns a direct Message.
 
 ## Asking Questions and Follow-ups
 
@@ -80,23 +88,23 @@ from the first response and pass it to the next send with `--context-id`.
 
 ```bash
 # Ask and keep the conversation context for later
-a2a send "My name is San." --fields "(.task // .) | {contextId,artifacts}"
+a2a send "My name is Harry Potter." --fields .task.contextId
 
 # Follow up in the same conversation
-a2a send "What should I do next?" --context-id <contextId> --fields "(.task // .).artifacts"
+a2a send "What should I do next?" --context-id <contextId> --fields .task.artifacts
 ```
 
 Use `contextId` for conversational continuity. Use `--task-id` only when
-`status.state` is `input-required` and the agent is waiting for input on that task.
+`task.status.state` is `TASK_STATE_INPUT_REQUIRED` and the agent is waiting for input on that task.
 
-| `status.state` | Meaning | Action |
+| `task.status.state` | Meaning | Action |
 |---|---|---|
-| `submitted` | Queued | Wait or poll |
-| `working` | In progress | Poll with `a2a task get <id>` |
-| `completed` | Done | Read `artifacts[*].parts` |
-| `failed` | Error | Read `status.message` for details |
-| `input-required` | Agent needs input | Read `status.message.parts`, reply with `a2a send --task-id <id> "..."` |
-| `canceled` | Canceled | — |
+| `TASK_STATE_SUBMITTED` | Queued | Wait or poll |
+| `TASK_STATE_WORKING` | In progress | Poll with `a2a task get <id>` |
+| `TASK_STATE_COMPLETED` | Done | Read `task.artifacts[*].parts` |
+| `TASK_STATE_FAILED` | Error | Read `task.status.message` for details |
+| `TASK_STATE_INPUT_REQUIRED` | Agent needs input | Read `task.status.message.parts`, reply with `a2a send --task-id <id> "..."` |
+| `TASK_STATE_CANCELED` | Canceled | — |
 
 ## Agent Management
 
@@ -132,6 +140,19 @@ a2a agent generate-skills --output-dir .agents/skills example
 Each agent has its own token. The OAuth flow is auto-detected from the agent card.
 When the agent card declares OAuth, `a2a auth login` requires an OAuth client ID.
 
+Supported auth modes:
+
+| Auth mode | How to use it |
+|---|---|
+| No auth | Use the agent directly when its card declares no OAuth flow |
+| Bearer / API token | `A2A_BEARER_TOKEN=<token>` or `--bearer-token <token>` |
+| OAuth `authorizationCode` + PKCE | `a2a auth login --client-id <id>` |
+| OAuth `deviceCode` | `a2a auth login --client-id <id>` |
+| OAuth `clientCredentials` | `A2A_CLIENT_ID=<id> A2A_CLIENT_SECRET=<secret> a2a auth login` |
+| Refresh-token renewal | Automatic when the stored token has `refresh_token` and `token_url` |
+
+OAuth `implicit` and password grants are not implemented.
+
 ```bash
 a2a auth login                        # active agent
 a2a auth login --agent <alias>        # specific agent
@@ -142,6 +163,8 @@ a2a auth logout --agent <alias>       # remove stored token
 
 OAuth client ID precedence is: `a2a auth login --client-id <id>` > `A2A_CLIENT_ID` >
 per-agent config from `a2a agent add/update <alias> --client-id <id>`.
+For CIMD OAuth deployments, the client ID is an HTTP URL; pass that URL
+unchanged, for example `a2a auth login --client-id http://cimd.example.com/clients/a2a-cli`.
 Agent-facing commands use the stored token and renew expired tokens automatically
 when possible. Client Credentials renewal requires `A2A_CLIENT_SECRET`.
 `A2A_BEARER_TOKEN` bypasses OAuth entirely (CI/scripts).
@@ -168,8 +191,8 @@ a2a stream "<text>"                         # streaming — prints events as the
 | `--fields <jq>` | jq filter applied to output — **preferred for AI tools** |
 
 ```bash
-a2a send "Hello" --fields .artifacts              # reply only
-a2a send "Hello" --fields "{id,status}"           # task id + status
+a2a send "Hello" --fields .task.artifacts         # reply only
+a2a send "Hello" --fields ".task | {id,status}" # task id + status
 a2a --format table agent list                     # human-readable table
 a2a --format table auth status
 ```
@@ -186,7 +209,7 @@ a2a --all send "Health check?"                          # all registered agents
 Results stream first-done-first as NDJSON:
 
 ```bash
-a2a --all send "Status?" | jq -r '"[\(.agent)] \(.status.state)"'
+a2a --all send "Status?" --fields "{agent,state:.task.status.state}"
 ```
 
 ## Task Management

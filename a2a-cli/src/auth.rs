@@ -1009,6 +1009,30 @@ mod tests {
         assert!(extract_oauth_flows(&card).is_empty());
     }
 
+    #[test]
+    fn extract_unsupported_implicit_and_password_flows_returns_empty() {
+        let card = serde_json::json!({
+            "securitySchemes": {
+                "myOAuth": {
+                    "oauth2SecurityScheme": {
+                        "flows": {
+                            "implicit": {
+                                "authorizationUrl": "https://auth.example.com/authorize",
+                                "scopes": {}
+                            },
+                            "password": {
+                                "tokenUrl": "https://auth.example.com/token",
+                                "scopes": {}
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        assert!(extract_oauth_flows(&card).is_empty());
+    }
+
     // ── client ID resolution ─────────────────────────────────────────
 
     #[test]
@@ -1040,6 +1064,20 @@ mod tests {
         let client_id = resolve_oauth_client_id(&agent, None).unwrap();
 
         assert_eq!(client_id.as_deref(), Some("configured-client"));
+    }
+
+    #[test]
+    #[serial]
+    fn resolve_client_id_accepts_cimd_http_url() {
+        let _env = EnvGuard::set("A2A_CLIENT_ID", "");
+        let agent = agent_with_client_id(Some("http://cimd.example.com/clients/a2a-cli"));
+
+        let client_id = resolve_oauth_client_id(&agent, None).unwrap();
+
+        assert_eq!(
+            client_id.as_deref(),
+            Some("http://cimd.example.com/clients/a2a-cli")
+        );
     }
 
     #[test]
@@ -1102,6 +1140,309 @@ mod tests {
         .unwrap();
 
         assert!(result.is_none());
+    }
+}
+
+#[cfg(test)]
+mod oauth_flow_tests {
+    use super::test_utils::EnvGuard;
+    use super::*;
+    use crate::config::OAuthConfig;
+    use crate::token_store::load_token;
+    use base64::Engine;
+    use percent_encoding::percent_decode_str;
+    use serial_test::serial;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+    #[derive(Debug, Clone)]
+    struct CapturedRequest {
+        path: String,
+        headers: HashMap<String, String>,
+        body: String,
+    }
+
+    impl CapturedRequest {
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers
+                .get(&name.to_ascii_lowercase())
+                .map(String::as_str)
+        }
+    }
+
+    fn agent_with_client_id(client_id: Option<&str>) -> Agent {
+        Agent {
+            url: "http://agent.test/".to_string(),
+            description: String::new(),
+            transport: String::new(),
+            oauth: client_id.map(|id| OAuthConfig {
+                client_id: id.to_string(),
+                scopes: vec![],
+            }),
+        }
+    }
+
+    fn decode_form_component(value: &str) -> String {
+        let value = value.replace('+', " ");
+        percent_decode_str(&value).decode_utf8_lossy().into_owned()
+    }
+
+    fn form_body(body: &str) -> HashMap<String, String> {
+        body.split('&')
+            .filter_map(|pair| {
+                let (key, value) = pair.split_once('=')?;
+                Some((decode_form_component(key), decode_form_component(value)))
+            })
+            .collect()
+    }
+
+    fn device_code_card(device_url: &str, token_url: &str) -> Value {
+        serde_json::json!({
+            "securitySchemes": {
+                "myOAuth": {
+                    "oauth2SecurityScheme": {
+                        "flows": {
+                            "deviceCode": {
+                                "deviceAuthorizationUrl": device_url,
+                                "tokenUrl": token_url,
+                                "scopes": { "openid": "OpenID Connect", "email": "Email" }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    fn client_credentials_card(token_url: &str) -> Value {
+        serde_json::json!({
+            "securitySchemes": {
+                "myOAuth": {
+                    "oauth2SecurityScheme": {
+                        "flows": {
+                            "clientCredentials": {
+                                "tokenUrl": token_url,
+                                "scopes": { "api": "API access" }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    async fn spawn_oauth_flow_server_with_responses(
+        expected_requests: usize,
+    ) -> (
+        String,
+        Arc<Mutex<Vec<CapturedRequest>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let captured_for_task = Arc::clone(&captured);
+
+        let handle = tokio::spawn(async move {
+            for _ in 0..expected_requests {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let (read_half, mut write_half) = tokio::io::split(stream);
+                let mut reader = BufReader::new(read_half);
+                let mut request_line = String::new();
+                if reader.read_line(&mut request_line).await.unwrap_or(0) == 0 {
+                    continue;
+                }
+                let path = request_line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("/")
+                    .to_string();
+                let mut headers = HashMap::new();
+                let mut content_length = 0usize;
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                        break;
+                    }
+                    let trimmed = line.trim_end();
+                    if trimmed.is_empty() {
+                        break;
+                    }
+                    if let Some((name, value)) = trimmed.split_once(':') {
+                        let name = name.trim().to_ascii_lowercase();
+                        let value = value.trim().to_string();
+                        if name == "content-length" {
+                            content_length = value.parse().unwrap_or(0);
+                        }
+                        headers.insert(name, value);
+                    }
+                }
+                let mut body_bytes = vec![0u8; content_length];
+                if content_length > 0 {
+                    let _ = reader.read_exact(&mut body_bytes).await;
+                }
+                captured_for_task.lock().unwrap().push(CapturedRequest {
+                    path: path.clone(),
+                    headers,
+                    body: String::from_utf8_lossy(&body_bytes).into_owned(),
+                });
+
+                let body = match path.as_str() {
+                    "/device" => {
+                        r#"{"device_code":"mock-device-code","user_code":"ABCD-EFGH","verification_uri":"http://verify.example.com","expires_in":600,"interval":1}"#
+                    }
+                    "/token" => {
+                        r#"{"access_token":"flow-access-token","expires_in":3600,"token_type":"Bearer","refresh_token":"flow-refresh-token"}"#
+                    }
+                    _ => r#"{"error":"not_found"}"#,
+                };
+                let status_line = if path == "/device" || path == "/token" {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
+                let response = format!(
+                    "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = write_half.write_all(response.as_bytes()).await;
+            }
+        });
+
+        (base_url, captured, handle)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn login_device_code_flow_exchanges_and_saves_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let _cfg = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _client_id = EnvGuard::set("A2A_CLIENT_ID", "device-client");
+
+        let (base_url, captured, server) = spawn_oauth_flow_server_with_responses(2).await;
+        let card = device_code_card(&format!("{base_url}/device"), &format!("{base_url}/token"));
+
+        let token = login(
+            "http://device-agent.test/",
+            &agent_with_client_id(None),
+            &card,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(token.as_deref(), Some("flow-access-token"));
+        tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .expect("oauth mock server did not finish")
+            .unwrap();
+
+        let requests = captured.lock().unwrap().clone();
+        let device_req = requests
+            .iter()
+            .find(|req| req.path == "/device")
+            .expect("device authorization request missing");
+        let device_form = form_body(&device_req.body);
+        assert_eq!(
+            device_form.get("client_id").map(String::as_str),
+            Some("device-client")
+        );
+        let scopes = device_form
+            .get("scope")
+            .map(|scope| scope.split_whitespace().collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert!(scopes.contains(&"openid"));
+        assert!(scopes.contains(&"email"));
+
+        let token_req = requests
+            .iter()
+            .find(|req| req.path == "/token")
+            .expect("device token request missing");
+        let token_form = form_body(&token_req.body);
+        assert_eq!(
+            token_form.get("grant_type").map(String::as_str),
+            Some("urn:ietf:params:oauth:grant-type:device_code")
+        );
+        assert_eq!(
+            token_form.get("device_code").map(String::as_str),
+            Some("mock-device-code")
+        );
+
+        let stored = load_token("http://device-agent.test/")
+            .unwrap()
+            .expect("device code token should be saved");
+        assert_eq!(stored.access_token, "flow-access-token");
+        assert_eq!(stored.grant_type, Some(TokenGrantType::DeviceCode));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn login_client_credentials_flow_exchanges_and_saves_token_with_cimd_client_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let _cfg = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let cimd_client_id = "http://cimd.example.com/clients/a2a-cli";
+        let _client_id = EnvGuard::set("A2A_CLIENT_ID", cimd_client_id);
+        let _secret = EnvGuard::set("A2A_CLIENT_SECRET", "client-secret");
+
+        let (base_url, captured, server) = spawn_oauth_flow_server_with_responses(1).await;
+        let card = client_credentials_card(&format!("{base_url}/token"));
+
+        let token = login(
+            "http://client-credentials-agent.test/",
+            &agent_with_client_id(None),
+            &card,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(token.as_deref(), Some("flow-access-token"));
+        tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .expect("oauth mock server did not finish")
+            .unwrap();
+
+        let requests = captured.lock().unwrap().clone();
+        let token_req = requests
+            .iter()
+            .find(|req| req.path == "/token")
+            .expect("client credentials token request missing");
+        let token_form = form_body(&token_req.body);
+        assert_eq!(
+            token_form.get("grant_type").map(String::as_str),
+            Some("client_credentials")
+        );
+        assert_eq!(token_form.get("scope").map(String::as_str), Some("api"));
+
+        let client_id_in_request = token_form
+            .get("client_id")
+            .is_some_and(|client_id| client_id == cimd_client_id)
+            || token_req.header("authorization").is_some_and(|auth| {
+                let Some(encoded) = auth.strip_prefix("Basic ") else {
+                    return false;
+                };
+                let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) else {
+                    return false;
+                };
+                decode_form_component(&String::from_utf8_lossy(&decoded)).contains(cimd_client_id)
+            });
+        assert!(
+            client_id_in_request,
+            "CIMD URL client_id must be sent to the token endpoint"
+        );
+
+        let stored = load_token("http://client-credentials-agent.test/")
+            .unwrap()
+            .expect("client credentials token should be saved");
+        assert_eq!(stored.access_token, "flow-access-token");
+        assert_eq!(stored.client_id.as_deref(), Some(cimd_client_id));
+        assert_eq!(stored.grant_type, Some(TokenGrantType::ClientCredentials));
     }
 }
 

@@ -393,7 +393,7 @@ fn agent_skill(alias: &str, url: &str, card: &a2a::AgentCard) -> String {
     // Quick reference
     let _ = writeln!(s, "## Quick Reference\n\n```bash");
     let _ = writeln!(s, "a2a send \"<your request>\"");
-    let _ = writeln!(s, "a2a send \"<your request>\" --fields .artifacts");
+    let _ = writeln!(s, "a2a send \"<your request>\" --fields .task.artifacts");
     if caps.streaming.unwrap_or(false) {
         let _ = writeln!(s, "a2a stream \"<your request>\"");
     }

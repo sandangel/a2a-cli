@@ -8,11 +8,15 @@
 //! - [`transport_from_card`] — detect the preferred transport (JSON-RPC or REST)
 //! - [`rpc_url_from_card`] — extract the endpoint URL from a v0.3 card
 //! - [`normalize_card`] — up-convert a v0.3 card JSON into a v1 [`AgentCard`]
+//! - [`normalize_send_message_response`] — up-convert v0.3 send results into
+//!   v1 `SendMessageResponse` JSON
+//! - [`normalize_task_response`] / [`normalize_stream_response`] — up-convert
+//!   v0.3 task and stream payloads into v1 JSON
 //! - [`Client`] — JSON-RPC or REST client for v0.3 agents
 //! - [`MessageParams`] — parameters for send / stream operations
 
 use futures::StreamExt;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use thiserror::Error;
 use tokio::io::AsyncBufReadExt;
 use tokio_util::io::StreamReader;
@@ -110,6 +114,297 @@ pub fn rpc_url_from_card<'a>(raw: &'a Value, base_url: &'a str) -> &'a str {
     raw.get("url").and_then(|u| u.as_str()).unwrap_or(base_url)
 }
 
+// ── Response normalization ────────────────────────────────────────────
+
+/// Up-convert a v0.3 `message/send` result into v1 `SendMessageResponse` JSON.
+///
+/// v0.3 servers commonly return a Task directly. v1 returns a
+/// `SendMessageResponse` union, so task results become `{ "task": ... }` and
+/// direct messages become `{ "message": ... }`.
+pub fn normalize_send_message_response(value: Value) -> Value {
+    if let Some(obj) = value.as_object() {
+        if let Some(task) = obj.get("task") {
+            return json!({ "task": normalize_task_response(task.clone()) });
+        }
+        if let Some(message) = obj.get("message") {
+            return json!({ "message": normalize_message_value(message.clone()) });
+        }
+    }
+
+    if looks_like_message(&value) {
+        json!({ "message": normalize_message_value(value) })
+    } else {
+        json!({ "task": normalize_task_response(value) })
+    }
+}
+
+/// Up-convert a v0.3 Task payload into v1 Task JSON.
+pub fn normalize_task_response(mut value: Value) -> Value {
+    normalize_task_value(&mut value);
+    value
+}
+
+/// Up-convert a v0.3 task list payload into v1 `ListTasksResponse` JSON.
+pub fn normalize_list_tasks_response(mut value: Value) -> Value {
+    if value.is_array() {
+        value = json!({ "tasks": value });
+    }
+
+    let tasks_len = if let Some(tasks) = value.get_mut("tasks").and_then(Value::as_array_mut) {
+        for task in tasks.iter_mut() {
+            normalize_task_value(task);
+        }
+        tasks.len()
+    } else {
+        0
+    };
+
+    if let Some(obj) = value.as_object_mut() {
+        obj.entry("nextPageToken")
+            .or_insert_with(|| Value::String(String::new()));
+        obj.entry("pageSize")
+            .or_insert_with(|| json!(tasks_len as i32));
+        obj.entry("totalSize")
+            .or_insert_with(|| json!(tasks_len as i32));
+    }
+
+    value
+}
+
+/// Up-convert a v0.3 streaming payload into v1 `StreamResponse` JSON.
+pub fn normalize_stream_response(value: Value) -> Value {
+    if let Some(obj) = value.as_object() {
+        if let Some(task) = obj.get("task") {
+            return json!({ "task": normalize_task_response(task.clone()) });
+        }
+        if let Some(message) = obj.get("message") {
+            return json!({ "message": normalize_message_value(message.clone()) });
+        }
+        if let Some(status) = obj.get("statusUpdate") {
+            return json!({ "statusUpdate": normalize_status_update_value(status.clone()) });
+        }
+        if let Some(artifact) = obj.get("artifactUpdate") {
+            return json!({ "artifactUpdate": normalize_artifact_update_value(artifact.clone()) });
+        }
+    }
+
+    if looks_like_artifact_update(&value) {
+        json!({ "artifactUpdate": normalize_artifact_update_value(value) })
+    } else if looks_like_status_update(&value) {
+        json!({ "statusUpdate": normalize_status_update_value(value) })
+    } else if looks_like_message(&value) {
+        json!({ "message": normalize_message_value(value) })
+    } else {
+        json!({ "task": normalize_task_response(value) })
+    }
+}
+
+fn looks_like_message(value: &Value) -> bool {
+    value.get("role").is_some() && value.get("parts").is_some() && value.get("status").is_none()
+}
+
+fn looks_like_status_update(value: &Value) -> bool {
+    value.get("taskId").is_some() && value.get("status").is_some() && value.get("id").is_none()
+}
+
+fn looks_like_artifact_update(value: &Value) -> bool {
+    value.get("taskId").is_some() && value.get("artifact").is_some()
+}
+
+fn normalize_task_value(value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    remove_known_discriminator(obj, "task");
+
+    if let Some(status) = obj.get_mut("status") {
+        normalize_status_value(status);
+    }
+    if let Some(artifacts) = obj.get_mut("artifacts").and_then(Value::as_array_mut) {
+        for artifact in artifacts {
+            normalize_artifact_value(artifact);
+        }
+    }
+    if let Some(history) = obj.get_mut("history").and_then(Value::as_array_mut) {
+        for message in history {
+            normalize_message_value_in_place(message);
+        }
+    }
+}
+
+fn normalize_status_value(value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    if let Some(state) = obj.get_mut("state") {
+        normalize_task_state_value(state);
+    }
+    if let Some(message) = obj.get_mut("message") {
+        normalize_message_value_in_place(message);
+    }
+}
+
+fn normalize_task_state_value(value: &mut Value) {
+    let Some(state) = value.as_str() else {
+        return;
+    };
+    if let Some(normalized) = normalize_task_state(state) {
+        *value = Value::String(normalized);
+    }
+}
+
+fn normalize_task_state(state: &str) -> Option<String> {
+    let state = state.trim();
+    if state.starts_with("TASK_STATE_") {
+        return Some(state.to_string());
+    }
+
+    let normalized = state.replace(['-', ' '], "_").to_ascii_uppercase();
+    let suffix = match normalized.as_str() {
+        "SUBMITTED" => "SUBMITTED",
+        "WORKING" => "WORKING",
+        "COMPLETED" => "COMPLETED",
+        "FAILED" => "FAILED",
+        "CANCELED" | "CANCELLED" => "CANCELED",
+        "INPUT_REQUIRED" | "INPUTREQUIRED" => "INPUT_REQUIRED",
+        "REJECTED" => "REJECTED",
+        "AUTH_REQUIRED" | "AUTHREQUIRED" => "AUTH_REQUIRED",
+        "UNSPECIFIED" => "UNSPECIFIED",
+        _ => return None,
+    };
+    Some(format!("TASK_STATE_{suffix}"))
+}
+
+fn normalize_message_value(mut value: Value) -> Value {
+    normalize_message_value_in_place(&mut value);
+    value
+}
+
+fn normalize_message_value_in_place(value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    remove_known_discriminator(obj, "message");
+
+    if let Some(role) = obj.get_mut("role") {
+        normalize_role_value(role);
+    }
+    if let Some(parts) = obj.get_mut("parts").and_then(Value::as_array_mut) {
+        for part in parts {
+            normalize_part_value(part);
+        }
+    }
+}
+
+fn normalize_role_value(value: &mut Value) {
+    let Some(role) = value.as_str() else {
+        return;
+    };
+    let normalized = match role.trim() {
+        "ROLE_USER" | "user" | "USER" => "ROLE_USER",
+        "ROLE_AGENT" | "agent" | "AGENT" => "ROLE_AGENT",
+        "ROLE_UNSPECIFIED" | "" => "ROLE_UNSPECIFIED",
+        _ => return,
+    };
+    *value = Value::String(normalized.to_string());
+}
+
+fn normalize_artifact_value(value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    remove_known_discriminator(obj, "artifact");
+
+    if let Some(parts) = obj.get_mut("parts").and_then(Value::as_array_mut) {
+        for part in parts {
+            normalize_part_value(part);
+        }
+    }
+}
+
+fn normalize_part_value(value: &mut Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    let discriminator = obj
+        .get("kind")
+        .or_else(|| obj.get("type"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    if discriminator.as_deref() == Some("file") {
+        normalize_file_part(obj);
+    }
+
+    obj.remove("kind");
+    obj.remove("type");
+}
+
+fn normalize_file_part(obj: &mut Map<String, Value>) {
+    let Some(file) = obj.remove("file") else {
+        return;
+    };
+    let Some(file_obj) = file.as_object() else {
+        return;
+    };
+
+    if !obj.contains_key("raw")
+        && let Some(bytes) = file_obj.get("bytes").cloned()
+    {
+        obj.insert("raw".into(), bytes);
+    }
+    if !obj.contains_key("url")
+        && let Some(url) = file_obj.get("uri").or_else(|| file_obj.get("url")).cloned()
+    {
+        obj.insert("url".into(), url);
+    }
+    if !obj.contains_key("filename")
+        && let Some(name) = file_obj
+            .get("name")
+            .or_else(|| file_obj.get("filename"))
+            .cloned()
+    {
+        obj.insert("filename".into(), name);
+    }
+    if !obj.contains_key("mediaType")
+        && let Some(media_type) = file_obj
+            .get("mimeType")
+            .or_else(|| file_obj.get("mediaType"))
+            .cloned()
+    {
+        obj.insert("mediaType".into(), media_type);
+    }
+}
+
+fn normalize_status_update_value(mut value: Value) -> Value {
+    if let Some(status) = value.get_mut("status") {
+        normalize_status_value(status);
+    }
+    value
+}
+
+fn normalize_artifact_update_value(mut value: Value) -> Value {
+    if let Some(artifact) = value.get_mut("artifact") {
+        normalize_artifact_value(artifact);
+    }
+    value
+}
+
+fn remove_known_discriminator(obj: &mut Map<String, Value>, expected: &str) {
+    if obj
+        .get("kind")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind == expected)
+    {
+        obj.remove("kind");
+    }
+}
+
 // ── Key transformation ─────────────────────────────────────────────────
 
 /// Recursively transform every object key in a JSON value using `f`.
@@ -169,8 +464,6 @@ fn snake_to_camel(s: &str) -> String {
 /// - `url` + `preferredTransport` → `supportedInterfaces`
 /// - `type: "oauth2"` security schemes → `oauth2SecurityScheme` wrapper
 pub fn normalize_card(raw: &Value) -> Result<AgentCard, V03Error> {
-    use serde_json::{Map, json};
-
     let mut v1 = raw.as_object().cloned().unwrap_or_default();
 
     // v0.3 `supportsAuthenticatedExtendedCard` → v1 `capabilities.extendedAgentCard`
@@ -256,7 +549,7 @@ impl MessageParams {
             "message": {
                 "role": "user",
                 "parts": [{ "type": "text", "text": self.text }],
-                "messageId": uuid::Uuid::new_v4().to_string(),
+                "messageId": uuid::Uuid::now_v7().to_string(),
                 "contextId": self.context_id,
                 "taskId": self.task_id,
             },
@@ -309,7 +602,7 @@ impl Client {
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, V03Error> {
         let body = serde_json::json!({
             "jsonrpc": "2.0",
-            "id": uuid::Uuid::new_v4().to_string(),
+            "id": uuid::Uuid::now_v7().to_string(),
             "method": method,
             "params": params,
         });
@@ -371,18 +664,19 @@ impl Client {
 
     /// Send a message and return the response value.
     pub async fn send_message(&self, params: &MessageParams) -> Result<Value, V03Error> {
-        match self.transport {
+        let value = match self.transport {
             Transport::JsonRpc => self.call("message/send", params.to_json()).await,
             Transport::Rest => {
                 self.rest_request("POST", "/message:send", Some(params.to_snake_json()), &[])
                     .await
             }
-        }
+        }?;
+        Ok(normalize_send_message_response(value))
     }
 
     /// Fetch a task by ID.
     pub async fn task(&self, id: &str, history_length: Option<i32>) -> Result<Value, V03Error> {
-        match self.transport {
+        let value = match self.transport {
             Transport::JsonRpc => {
                 self.call(
                     "tasks/get",
@@ -399,7 +693,8 @@ impl Client {
                 self.rest_request("GET", &format!("/tasks/{id}"), None, &query)
                     .await
             }
-        }
+        }?;
+        Ok(normalize_task_response(value))
     }
 
     /// List tasks with optional filters.
@@ -412,7 +707,7 @@ impl Client {
         page_size: Option<i32>,
         page_token: Option<&str>,
     ) -> Result<Value, V03Error> {
-        match self.transport {
+        let value = match self.transport {
             Transport::JsonRpc => Err(V03Error::Unsupported(
                 "list-tasks is not supported over JSON-RPC for v0.3 agents",
             )),
@@ -430,12 +725,13 @@ impl Client {
                 }
                 self.rest_request("GET", "/tasks", None, &query).await
             }
-        }
+        }?;
+        Ok(normalize_list_tasks_response(value))
     }
 
     /// Cancel a running task.
     pub async fn cancel_task(&self, id: &str) -> Result<Value, V03Error> {
-        match self.transport {
+        let value = match self.transport {
             Transport::JsonRpc => {
                 self.call("tasks/cancel", serde_json::json!({ "id": id }))
                     .await
@@ -444,7 +740,8 @@ impl Client {
                 self.rest_request("POST", &format!("/tasks/{id}:cancel"), None, &[])
                     .await
             }
-        }
+        }?;
+        Ok(normalize_task_response(value))
     }
 
     /// Stream a message, calling `on_event` for each SSE event received.
@@ -498,7 +795,7 @@ impl Client {
     ) -> Result<(), SseError<E>> {
         let body = serde_json::json!({
             "jsonrpc": "2.0",
-            "id": uuid::Uuid::new_v4().to_string(),
+            "id": uuid::Uuid::now_v7().to_string(),
             "method": method,
             "params": params,
         });
@@ -522,7 +819,7 @@ impl Client {
         // Unwrap JSON-RPC envelope: { "result": <event> } or { "error": {...} }
         parse_sse_stream(resp, |frame| {
             if let Some(result) = frame.get("result").cloned() {
-                on_event(result).map_err(SseError::Callback)
+                on_event(normalize_stream_response(result)).map_err(SseError::Callback)
             } else if let Some(err) = frame.get("error") {
                 let msg = err
                     .get("message")
@@ -565,7 +862,11 @@ impl Client {
 
         // REST events are snake_case; normalise to camelCase before forwarding.
         parse_sse_stream(resp, |event| {
-            on_event(transform_json_keys(event, snake_to_camel)).map_err(SseError::Callback)
+            on_event(normalize_stream_response(transform_json_keys(
+                event,
+                snake_to_camel,
+            )))
+            .map_err(SseError::Callback)
         })
         .await
     }
@@ -725,6 +1026,129 @@ mod tests {
         assert_eq!(result["context_id"], "ctx");
         assert_eq!(result["status"]["task_state"], "completed");
         assert_eq!(result["parts"][0]["text_part"], "hello");
+    }
+
+    // ── response normalization ────────────────────────────────────────
+
+    #[test]
+    fn normalize_send_wraps_task_and_maps_v1_values() {
+        let result = normalize_send_message_response(serde_json::json!({
+            "kind": "task",
+            "id": "task-1",
+            "contextId": "ctx-1",
+            "status": { "state": "completed" },
+            "artifacts": [
+                {
+                    "artifactId": "art-1",
+                    "parts": [{ "kind": "text", "text": "hello" }]
+                }
+            ],
+            "history": [
+                {
+                    "kind": "message",
+                    "messageId": "msg-1",
+                    "role": "agent",
+                    "parts": [{ "kind": "data", "data": { "ok": true } }]
+                }
+            ]
+        }));
+
+        assert_eq!(result["task"]["status"]["state"], "TASK_STATE_COMPLETED");
+        assert_eq!(result["task"]["history"][0]["role"], "ROLE_AGENT");
+        assert!(result["task"].get("kind").is_none());
+        assert!(
+            result["task"]["artifacts"][0]["parts"][0]
+                .get("kind")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn normalize_send_wraps_direct_message() {
+        let result = normalize_send_message_response(serde_json::json!({
+            "kind": "message",
+            "messageId": "msg-1",
+            "role": "agent",
+            "parts": [{ "kind": "text", "text": "hello" }]
+        }));
+
+        assert_eq!(result["message"]["role"], "ROLE_AGENT");
+        assert_eq!(result["message"]["parts"][0]["text"], "hello");
+        assert!(result["message"].get("kind").is_none());
+    }
+
+    #[test]
+    fn normalize_task_response_maps_state() {
+        let result = normalize_task_response(serde_json::json!({
+            "id": "task-1",
+            "contextId": "ctx-1",
+            "status": { "state": "input-required" }
+        }));
+
+        assert_eq!(result["status"]["state"], "TASK_STATE_INPUT_REQUIRED");
+    }
+
+    #[test]
+    fn normalize_list_tasks_response_fills_v1_pagination_defaults() {
+        let result = normalize_list_tasks_response(serde_json::json!({
+            "tasks": [
+                {
+                    "id": "task-1",
+                    "contextId": "ctx-1",
+                    "status": { "state": "working" }
+                }
+            ]
+        }));
+
+        assert_eq!(result["tasks"][0]["status"]["state"], "TASK_STATE_WORKING");
+        assert_eq!(result["nextPageToken"], "");
+        assert_eq!(result["pageSize"], 1);
+        assert_eq!(result["totalSize"], 1);
+    }
+
+    #[test]
+    fn normalize_stream_response_wraps_status_update() {
+        let result = normalize_stream_response(serde_json::json!({
+            "taskId": "task-1",
+            "contextId": "ctx-1",
+            "status": { "state": "working" }
+        }));
+
+        assert_eq!(
+            result["statusUpdate"]["status"]["state"],
+            "TASK_STATE_WORKING"
+        );
+    }
+
+    #[test]
+    fn normalize_file_part_to_v1_fields() {
+        let result = normalize_send_message_response(serde_json::json!({
+            "id": "task-1",
+            "contextId": "ctx-1",
+            "status": { "state": "completed" },
+            "artifacts": [
+                {
+                    "artifactId": "art-1",
+                    "parts": [
+                        {
+                            "kind": "file",
+                            "file": {
+                                "name": "report.txt",
+                                "mimeType": "text/plain",
+                                "bytes": "aGVsbG8="
+                            }
+                        }
+                    ]
+                }
+            ]
+        }));
+
+        let part = &result["task"]["artifacts"][0]["parts"][0];
+        assert_eq!(part["filename"], "report.txt");
+        assert_eq!(part["mediaType"], "text/plain");
+        assert_eq!(part["raw"], "aGVsbG8=");
+        assert!(part.get("file").is_none());
+        assert!(part.get("kind").is_none());
     }
 
     // ── normalize_card ─────────────────────────────────────────────────

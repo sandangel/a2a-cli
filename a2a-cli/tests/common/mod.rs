@@ -9,7 +9,7 @@ use a2a_cli::runner::run_to_value;
 use a2acli::MessageCommand;
 use serde_json::Value;
 
-/// Run a `send` command against `base_url` and return the raw JSON value.
+/// Run a `send` command against `base_url` and return the CLI JSON value.
 #[allow(dead_code)]
 pub async fn run_send(text: &str, base_url: &str) -> Value {
     let cmd = Command::Send(MessageCommand {
@@ -25,7 +25,7 @@ pub async fn run_send(text: &str, base_url: &str) -> Value {
         .expect("run_send failed")
 }
 
-/// Run a `send` command with an explicit context_id and return the raw JSON value.
+/// Run a `send` command with an explicit context_id and return the CLI JSON value.
 #[allow(dead_code)]
 pub async fn run_send_with_ctx(text: &str, base_url: &str, context_id: &str) -> Value {
     try_send_with_ctx(text, base_url, context_id)

@@ -51,7 +51,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub tenant: Option<String>,
 
-    /// jq filter expression applied to output (e.g. ".artifacts[0].parts[0].text", "id,status.state")
+    /// jq filter expression applied to output (e.g. ".task.artifacts[0].parts[0].text", ".task.status.state")
     #[arg(long, short = 'f', global = true)]
     pub fields: Option<String>,
 

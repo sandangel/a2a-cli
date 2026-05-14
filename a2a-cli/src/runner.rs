@@ -10,11 +10,11 @@ use std::sync::Arc;
 use crate::cli::Command;
 use crate::commands::task::TaskCommand;
 use a2a::{
-    AgentCard, AuthenticationInfo, CreateTaskPushNotificationConfigRequest,
-    DeleteTaskPushNotificationConfigRequest, GetExtendedAgentCardRequest,
-    GetTaskPushNotificationConfigRequest, GetTaskRequest, ListTaskPushNotificationConfigsRequest,
-    ListTasksRequest, Message, Part, PushNotificationConfig, Role, SendMessageConfiguration,
-    SendMessageRequest, SubscribeToTaskRequest, TaskState,
+    AgentCard, AuthenticationInfo, DeleteTaskPushNotificationConfigRequest,
+    GetExtendedAgentCardRequest, GetTaskPushNotificationConfigRequest, GetTaskRequest,
+    ListTaskPushNotificationConfigsRequest, ListTasksRequest, Message, Part, Role,
+    SendMessageConfiguration, SendMessageRequest, SubscribeToTaskRequest,
+    TaskPushNotificationConfig, TaskState,
 };
 use a2a_client::{A2AClient, A2AClientFactory, Transport, auth::AuthInterceptor};
 use a2a_compat::MessageParams;
@@ -331,22 +331,18 @@ async fn run_push_to_value(
                     "--auth-credentials requires --auth-scheme".to_string(),
                 ));
             }
-            let config = PushNotificationConfig {
+            let config = TaskPushNotificationConfig {
                 url: cmd.url.clone(),
                 id: cmd.config_id.clone(),
+                task_id: cmd.task_id.clone(),
                 token: cmd.token.clone(),
                 authentication: cmd.auth_scheme.clone().map(|scheme| AuthenticationInfo {
                     scheme,
                     credentials: cmd.auth_credentials.clone(),
                 }),
+                tenant,
             };
-            let result = client
-                .create_push_config(&CreateTaskPushNotificationConfigRequest {
-                    task_id: cmd.task_id.clone(),
-                    config,
-                    tenant,
-                })
-                .await;
+            let result = client.create_push_config(&config).await;
             let resp = finish(client, result).await?;
             Ok(serde_json::to_value(&resp)?)
         }
@@ -482,7 +478,7 @@ fn build_send_request(cmd: &MessageCommand, tenant: Option<&str>) -> SendMessage
                 .then_some(cmd.accepted_output_modes.clone()),
             history_length: cmd.history_length,
             return_immediately: cmd.return_immediately.then_some(true),
-            push_notification_config: None,
+            task_push_notification_config: None,
         })
     } else {
         None
@@ -502,6 +498,8 @@ fn build_send_request(cmd: &MessageCommand, tenant: Option<&str>) -> SendMessage
 mod tests {
     use super::*;
     use a2acli::{MessageCommand, TaskIdCommand};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     // ── is_streaming ──────────────────────────────────────────────────
 
@@ -599,5 +597,56 @@ mod tests {
         let req = build_send_request(&cmd, None);
         let cfg = req.configuration.unwrap();
         assert_eq!(cfg.return_immediately, Some(true));
+    }
+
+    #[tokio::test]
+    async fn fetch_card_raw_sends_bearer_token() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let base_url = format!("http://127.0.0.1:{port}");
+        let authorization = Arc::new(Mutex::new(None::<String>));
+        let authorization_for_task = Arc::clone(&authorization);
+
+        let server = tokio::spawn(async move {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            let (read_half, mut write_half) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                let trimmed = line.trim_end();
+                if trimmed.is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = trimmed.split_once(':')
+                    && name.eq_ignore_ascii_case("authorization")
+                {
+                    *authorization_for_task.lock().unwrap() = Some(value.trim().to_string());
+                }
+            }
+
+            let body = r#"{"name":"test-agent"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = write_half.write_all(response.as_bytes()).await;
+        });
+
+        let card = fetch_card_raw(&base_url, Some("static-api-token"))
+            .await
+            .unwrap();
+        assert_eq!(card["name"], "test-agent");
+
+        server.await.unwrap();
+        assert_eq!(
+            authorization.lock().unwrap().as_deref(),
+            Some("Bearer static-api-token")
+        );
     }
 }
