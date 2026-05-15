@@ -115,9 +115,20 @@ fn load_config_at(path: &std::path::Path) -> Result<Config> {
 
 pub fn save(cfg: &Config) -> Result<()> {
     let path = config_path()?;
+    save_config_at(&path, cfg)
+}
+
+fn save_config_at(path: &std::path::Path, cfg: &Config) -> Result<()> {
     let data = serde_yaml::to_string(cfg)
         .map_err(|e| A2aCliError::Config(format!("serialize config: {e}")))?;
-    atomic_write(&path, data.as_bytes())
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            A2aCliError::Config(format!("create config directory {}: {e}", parent.display()))
+        })?;
+    }
+    atomic_write(path, data.as_bytes())
         .map_err(|e| A2aCliError::Config(format!("write config: {e}")))
 }
 

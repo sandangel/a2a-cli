@@ -524,6 +524,35 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
+    async fn add_creates_missing_config_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("missing/a2a-cli");
+        let _cfg_guard = EnvGuard::set("A2A_CONFIG_DIR", &config_dir);
+        let _dir_guard = CurrentDirGuard::enter(tmp.path());
+
+        let (base_url, _server) = spawn_card_server(MINIMAL_CARD).await;
+        let client_id = format!("{base_url}/.well-known/client-metadata.json");
+
+        let cmd = AgentCommand::Add(AddArgs {
+            alias: "first-run".to_string(),
+            url: base_url.clone(),
+            description: None,
+            client_id: Some(client_id.clone()),
+            scopes: vec![],
+            transport: None,
+        });
+        run_agent(&cmd, &default_global_args()).await.unwrap();
+
+        assert!(config_dir.join("config.yaml").exists());
+        let cfg = crate::config::load().unwrap();
+        assert_eq!(cfg.current_agent.as_ref().unwrap().as_str(), "first-run");
+        let agent = cfg.agents.get("first-run").unwrap();
+        assert_eq!(agent.url, base_url);
+        assert_eq!(agent.oauth.as_ref().unwrap().client_id, client_id);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
     async fn add_succeeds_when_card_unreachable() {
         let tmp = tempfile::tempdir().unwrap();
         let _cfg_guard = EnvGuard::set("A2A_CONFIG_DIR", tmp.path());
