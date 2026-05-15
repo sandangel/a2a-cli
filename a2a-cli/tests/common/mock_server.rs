@@ -190,7 +190,7 @@ fn build_v1_router(port: u16) -> Router {
 
 fn v1_card_json(port: u16) -> Value {
     json!({
-        "name": "mock-rover",
+        "name": "mock-agent",
         "description": "Mock A2A v1 agent for testing all documented commands.",
         "version": "1.0.0",
         "supportedInterfaces": [
@@ -333,7 +333,7 @@ impl RequestHandler for MockV1Handler {
         _req: GetExtendedAgentCardRequest,
     ) -> Result<AgentCard, A2AError> {
         Ok(AgentCard {
-            name: "mock-rover (extended)".to_string(),
+            name: "mock-agent (extended)".to_string(),
             description: "Extended mock card with full skill details.".to_string(),
             version: "1.0.0".to_string(),
             capabilities: AgentCapabilities {
@@ -464,7 +464,7 @@ fn build_v03_jsonrpc_router(port: u16) -> Router {
 
 fn v03_jsonrpc_card_json(port: u16) -> Value {
     json!({
-        "name": "mock-eai",
+        "name": "mock-agent-v03-jsonrpc",
         "description": "Mock A2A v0.3 JSON-RPC agent",
         "version": "1.0.0",
         "protocolVersion": "0.3.0",
@@ -530,7 +530,7 @@ fn build_v03_rest_router(port: u16) -> Router {
 
 fn v03_rest_card_json(port: u16) -> Value {
     json!({
-        "name": "mock-eai",
+        "name": "mock-agent-v03-rest",
         "description": "Mock A2A v0.3 REST agent",
         "version": "1.0.0",
         "protocolVersion": "0.3.0",

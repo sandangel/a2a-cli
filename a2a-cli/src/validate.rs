@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn alias_newtype_valid() {
-        assert!(AgentAlias::new("rover").is_ok());
+        assert!(AgentAlias::new("team-a").is_ok());
     }
 
     #[test]

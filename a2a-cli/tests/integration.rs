@@ -122,7 +122,7 @@ mod v1 {
         let server = MockServer::start(MockVariant::V1).await;
         let result = run_card(&server.base_url).await;
         assert!(result["name"].is_string());
-        assert_eq!(result["name"], "mock-rover");
+        assert_eq!(result["name"], "mock-agent");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -197,7 +197,7 @@ mod v03_jsonrpc {
         let server = MockServer::start(MockVariant::V03JsonRpc).await;
         let result = run_card(&server.base_url).await;
         assert!(result["name"].is_string());
-        assert_eq!(result["name"], "mock-eai");
+        assert_eq!(result["name"], "mock-agent-v03-jsonrpc");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -295,7 +295,7 @@ mod v03_rest {
         let server = MockServer::start(MockVariant::V03Rest).await;
         let result = run_card(&server.base_url).await;
         assert!(result["name"].is_string());
-        assert_eq!(result["name"], "mock-eai");
+        assert_eq!(result["name"], "mock-agent-v03-rest");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
