@@ -22,6 +22,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
+          # Do not restore/save ~/.cargo/bin. A poisoned rust-cache entry can
+          # replace cargo or rustc with Homebrew's rustup-init shim on macOS.
+          cache-bin: false
           cache-all-crates: true
           cache-workspace-crates: true
           # Disable the default RUSTFLAGS=-D warnings: cargo passes CLI lint flags

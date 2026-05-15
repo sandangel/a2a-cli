@@ -30,15 +30,11 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            # Pin away from `macos-latest`; it moves between images over time.
-            runner: macos-15
+            runner: macos-latest
             archive: tar.gz
             cross: false
           - target: x86_64-apple-darwin
-            # Keep Intel macOS builds on an Intel image. `macos-latest` can move
-            # under us, while GitHub provides `macos-15-intel` for x64 jobs until
-            # the hosted Intel macOS images are retired.
-            runner: macos-15-intel
+            runner: macos-latest
             archive: tar.gz
             cross: false
           - target: aarch64-unknown-linux-gnu
@@ -74,57 +70,12 @@ jobs:
         with:
           target: ${{ matrix.target }}
           rustflags: ""
+          # Do not restore/save ~/.cargo/bin. A poisoned rust-cache entry can
+          # replace cargo or rustc with Homebrew's rustup-init shim on macOS.
+          cache-bin: false
           cache-all-crates: true
           cache-workspace-crates: true
           cache-key: ${{ matrix.target }}
-
-      - name: Resolve Rust tools
-        id: rust-tools
-        run: |
-          set -euo pipefail
-          # Some macOS runner images can resolve `cargo`, `rustc`, or
-          # ~/.cargo/bin/cargo to Homebrew's rustup-init shim. Avoid PATH and
-          # rustup proxies; find the real binaries under rustup's toolchains and
-          # validate their version output before using them.
-          rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
-          shopt -s nullglob
-          cargo_candidates=(
-            "${rustup_home}"/toolchains/*/bin/cargo
-            "${HOME}"/.cargo/bin/cargo
-            "$(command -v cargo || true)"
-          )
-
-          cargo_bin=""
-          for candidate in "${cargo_candidates[@]}"; do
-            if [ -x "${candidate}" ] && "${candidate}" --version 2>/dev/null | grep -q '^cargo '; then
-              cargo_bin="${candidate}"
-              break
-            fi
-          done
-
-          if [ -z "${cargo_bin}" ]; then
-            echo "::error::real cargo binary not found"
-            echo "PATH=${PATH}"
-            echo "RUSTUP_HOME=${RUSTUP_HOME:-}"
-            echo "CARGO_HOME=${CARGO_HOME:-}"
-            command -v cargo || true
-            command -v rustc || true
-            find "${rustup_home}" -maxdepth 4 -type f \( -name cargo -o -name rustc \) -print 2>/dev/null || true
-            exit 1
-          fi
-
-          rustc_bin="$(dirname "${cargo_bin}")/rustc"
-          if [ ! -x "${rustc_bin}" ] || ! "${rustc_bin}" --version 2>/dev/null | grep -q '^rustc '; then
-            echo "::error::real rustc binary not found next to cargo: ${rustc_bin}"
-            exit 1
-          fi
-
-          dirname "${cargo_bin}" >> "${GITHUB_PATH}"
-          echo "cargo=${cargo_bin}" >> "${GITHUB_OUTPUT}"
-          echo "rustc=${rustc_bin}" >> "${GITHUB_OUTPUT}"
-          "${rustc_bin}" --version --verbose
-          "${cargo_bin}" --version
-        shell: bash
 
       - name: Cache cross binary
         if: matrix.cross == true
@@ -137,8 +88,7 @@ jobs:
       - name: Install cross
         if: matrix.cross == true && steps.cache-cross.outputs.cache-hit != 'true'
         run: |
-          cargo_bin="${{ steps.rust-tools.outputs.cargo }}"
-          "$cargo_bin" install cross --locked --version 0.2.5
+          cargo install cross --locked --version 0.2.5
 
       - name: Build
         env:
@@ -149,14 +99,13 @@ jobs:
             --volume /home/runner/.cargo/registry:/root/.cargo/registry
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
-          cargo_bin="${{ steps.rust-tools.outputs.cargo }}"
           cross_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cross"
-          "$cargo_bin" --version
+          cargo --version
 
           if [ "${{ matrix.cross }}" = "true" ]; then
             "$cross_bin" build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
           else
-            "$cargo_bin" build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
+            cargo build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
           fi
         shell: bash
 
