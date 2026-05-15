@@ -6,6 +6,13 @@
 npm install -g @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com
 ```
 
+Use `@next` for release candidates or `@dev` for the current main-branch build:
+
+```bash
+npm install -g @sandangel/a2a-protocol-cli@next --registry=https://npm.pkg.github.com
+npm install -g @sandangel/a2a-protocol-cli@dev --registry=https://npm.pkg.github.com
+```
+
 ### Cargo
 
 ```bash

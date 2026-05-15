@@ -4,6 +4,23 @@ This file covers install paths and Rust usage that are not part of the main
 quick start. The Rust package is `a2a-protocol-cli`, and the library crate is
 `a2a_cli`.
 
+## npm Dist-Tags
+
+The main README shows the stable npm install path. The default package install
+uses the `latest` dist-tag. Release candidates are published with the `next`
+tag, and builds from the `main` branch are published with the `dev` tag:
+
+```bash
+# Stable
+npm install -g @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com
+
+# Release candidate
+npm install -g @sandangel/a2a-protocol-cli@next --registry=https://npm.pkg.github.com
+
+# Current main-branch build
+npm install -g @sandangel/a2a-protocol-cli@dev --registry=https://npm.pkg.github.com
+```
+
 ## Cargo
 
 Install the CLI directly from the repository:

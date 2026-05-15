@@ -20,6 +20,18 @@ npm config set //npm.pkg.github.com/:_authToken $(gh auth token)
 npm install -g @sandangel/a2a-protocol-cli --registry=https://npm.pkg.github.com
 ```
 
+The default install uses the stable `latest` npm dist-tag. To install a release
+candidate, use the `next` tag. To install the current build from the `main`
+branch, use the `dev` tag:
+
+```bash
+# Release candidate
+npm install -g @sandangel/a2a-protocol-cli@next --registry=https://npm.pkg.github.com
+
+# Current main-branch build
+npm install -g @sandangel/a2a-protocol-cli@dev --registry=https://npm.pkg.github.com
+```
+
 The GitHub Packages npm package is a binary distribution for the `a2a` command.
 For Cargo installs, direct binary downloads, source builds, shell completions,
 and Rust library usage, see [INSTALL.md](INSTALL.md).
