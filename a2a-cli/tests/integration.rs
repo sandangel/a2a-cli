@@ -398,6 +398,24 @@ mod schema_coherence {
             "TaskStatus.state enum missing TASK_STATE_COMPLETED"
         );
     }
+
+    #[test]
+    fn schema_respects_global_fields_filter() {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_a2a"))
+            .args(["--compact", "--fields", "{title:.title}", "schema", "send"])
+            .output()
+            .expect("failed to run filtered a2a schema send");
+
+        assert!(
+            output.status.success(),
+            "a2a schema send --fields exited non-zero: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let filtered: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("filtered schema output is valid JSON");
+        assert_eq!(filtered, serde_json::json!({"title": "SendMessageRequest"}));
+    }
 }
 
 // ── doc-example tests ─────────────────────────────────────────────────
