@@ -82,17 +82,47 @@ jobs:
         id: rust-tools
         run: |
           set -euo pipefail
-          # Some macOS runner images can resolve `cargo` or ~/.cargo/bin/cargo to
-          # Homebrew's rustup-init shim. The cargo binary next to rustc's sysroot
-          # is the actual toolchain cargo installed by the setup action.
-          sysroot="$(rustc --print sysroot)"
-          cargo_bin="${sysroot}/bin/cargo"
-          if [ ! -x "${cargo_bin}" ]; then
-            echo "::error::cargo not found in rustc sysroot: ${cargo_bin}"
+          # Some macOS runner images can resolve `cargo`, `rustc`, or
+          # ~/.cargo/bin/cargo to Homebrew's rustup-init shim. Avoid PATH and
+          # rustup proxies; find the real binaries under rustup's toolchains and
+          # validate their version output before using them.
+          rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
+          shopt -s nullglob
+          cargo_candidates=(
+            "${rustup_home}"/toolchains/*/bin/cargo
+            "${HOME}"/.cargo/bin/cargo
+            "$(command -v cargo || true)"
+          )
+
+          cargo_bin=""
+          for candidate in "${cargo_candidates[@]}"; do
+            if [ -x "${candidate}" ] && "${candidate}" --version 2>/dev/null | grep -q '^cargo '; then
+              cargo_bin="${candidate}"
+              break
+            fi
+          done
+
+          if [ -z "${cargo_bin}" ]; then
+            echo "::error::real cargo binary not found"
+            echo "PATH=${PATH}"
+            echo "RUSTUP_HOME=${RUSTUP_HOME:-}"
+            echo "CARGO_HOME=${CARGO_HOME:-}"
+            command -v cargo || true
+            command -v rustc || true
+            find "${rustup_home}" -maxdepth 4 -type f \( -name cargo -o -name rustc \) -print 2>/dev/null || true
             exit 1
           fi
+
+          rustc_bin="$(dirname "${cargo_bin}")/rustc"
+          if [ ! -x "${rustc_bin}" ] || ! "${rustc_bin}" --version 2>/dev/null | grep -q '^rustc '; then
+            echo "::error::real rustc binary not found next to cargo: ${rustc_bin}"
+            exit 1
+          fi
+
+          dirname "${cargo_bin}" >> "${GITHUB_PATH}"
           echo "cargo=${cargo_bin}" >> "${GITHUB_OUTPUT}"
-          rustc --version --verbose
+          echo "rustc=${rustc_bin}" >> "${GITHUB_OUTPUT}"
+          "${rustc_bin}" --version --verbose
           "${cargo_bin}" --version
         shell: bash
 
