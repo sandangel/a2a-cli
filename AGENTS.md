@@ -18,7 +18,7 @@
 - **Check `task.status.state`** to understand task state: `TASK_STATE_COMPLETED`, `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_FAILED`, etc.
 - **Never expose tokens** — bearer tokens and client secrets are sensitive; use keychain storage.
 - **Confirm before canceling tasks** — `a2a task cancel` is destructive.
-- **Use `a2a schema`** to inspect data structures before crafting messages.
+- **Use `a2a schema`** to inspect data structures before crafting messages or `--fields` filters.
 
 ## Build & Test
 
@@ -91,7 +91,7 @@ a2a [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--comp
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`; use `table` for human-readable) |
 | `--compact` | Single-line JSON (only with `--format json`) |
-| `--fields <jq>` | jq filter applied to output (e.g. `.task.artifacts[0]`); AI tools |
+| `--fields <jq>` | Built-in jq filter applied to output (e.g. `.task.artifacts[0]`); AI tools |
 | `--transport jsonrpc\|http-json` | Override transport (default: auto from agent card) |
 | `--tenant <id>` | Optional tenant ID forwarded to A2A requests |
 | `--bearer-token <token>` | Static bearer token, bypasses OAuth |
@@ -108,6 +108,9 @@ a2a send "Hello" --fields .task.artifacts        # task output
 a2a send "Hello" --fields .task.status.state     # just the state
 a2a send "Hello" --compact                  # single-line JSON
 ```
+
+Use `a2a schema send`, `a2a schema task`, or `a2a schema card` to discover the
+JSON shape before choosing a `--fields` expression.
 
 Multi-agent output is always NDJSON — one compact JSON line per agent, each tagged with `agent` and `agent_url`:
 

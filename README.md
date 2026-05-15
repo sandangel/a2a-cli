@@ -95,7 +95,7 @@ relative path under the current project. Defaults:
 | `a2a agent generate-skills [--output-dir DIR] [alias...]` | Generate per-agent skills from live agent cards |
 | `a2a auth login/logout/status`                            | Per-agent OAuth flows                           |
 | `a2a push-config create/get/list/delete`                  | Manage push notification configs                |
-| `a2a schema send/task/card`                               | Inspect A2A protocol types                      |
+| `a2a schema send/task/card`                               | Inspect A2A protocol types and discover shapes  |
 | `a2a config show`                                         | Show CLI configuration                          |
 | `a2a generate-skills [--output-dir DIR]`                  | Generate the `a2a` CLI skill                    |
 | `a2a completions <shell>`                                 | Print shell completion script                   |
@@ -108,7 +108,7 @@ relative path under the current project. Defaults:
 | `--all`                           | All registered agents in parallel                  |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`)                    |
 | `--compact`                       | Single-line JSON                                   |
-| `--fields <jq>`                   | jq filter applied to output (e.g. `.task.artifacts[0]`) |
+| `--fields <jq>`                   | Built-in jq filter applied to output (e.g. `.task.artifacts[0]`) |
 | `--bearer-token <token>`          | Static API token / bearer token, bypasses OAuth    |
 
 ## Output
@@ -116,6 +116,16 @@ relative path under the current project. Defaults:
 `a2a send` returns `SendMessageResponse` JSON for all supported server
 versions. v0.3 server responses are normalized by the compatibility layer, so
 task replies are always under `.task.*`.
+
+Use `--fields` to run the CLI's built-in jq filter against the JSON output. Use
+`a2a schema` to discover request and response shapes before writing filters or
+constructing payloads:
+
+```bash
+a2a schema send   # SendMessageRequest JSON Schema
+a2a schema task   # Task JSON Schema
+a2a schema card   # AgentCard JSON Schema
+```
 
 ```bash
 # Human-readable

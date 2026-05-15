@@ -382,6 +382,9 @@ fn normalize_file_part(obj: &mut Map<String, Value>) {
 }
 
 fn normalize_status_update_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        remove_known_discriminator(obj, "status-update");
+    }
     if let Some(status) = value.get_mut("status") {
         normalize_status_value(status);
     }
@@ -389,6 +392,9 @@ fn normalize_status_update_value(mut value: Value) -> Value {
 }
 
 fn normalize_artifact_update_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        remove_known_discriminator(obj, "artifact-update");
+    }
     if let Some(artifact) = value.get_mut("artifact") {
         normalize_artifact_value(artifact);
     }
@@ -1109,6 +1115,7 @@ mod tests {
     #[test]
     fn normalize_stream_response_wraps_status_update() {
         let result = normalize_stream_response(serde_json::json!({
+            "kind": "status-update",
             "taskId": "task-1",
             "contextId": "ctx-1",
             "status": { "state": "working" }
@@ -1117,6 +1124,32 @@ mod tests {
         assert_eq!(
             result["statusUpdate"]["status"]["state"],
             "TASK_STATE_WORKING"
+        );
+        assert!(result["statusUpdate"].get("kind").is_none());
+    }
+
+    #[test]
+    fn normalize_stream_response_wraps_artifact_update() {
+        let result = normalize_stream_response(serde_json::json!({
+            "kind": "artifact-update",
+            "taskId": "task-1",
+            "contextId": "ctx-1",
+            "artifact": {
+                "artifactId": "art-1",
+                "parts": [{ "kind": "text", "text": "hello" }]
+            },
+            "lastChunk": true
+        }));
+
+        assert_eq!(
+            result["artifactUpdate"]["artifact"]["parts"][0]["text"],
+            "hello"
+        );
+        assert!(result["artifactUpdate"].get("kind").is_none());
+        assert!(
+            result["artifactUpdate"]["artifact"]["parts"][0]
+                .get("kind")
+                .is_none()
         );
     }
 

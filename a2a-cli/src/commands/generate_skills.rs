@@ -255,7 +255,7 @@ a2a stream "<text>"                         # streaming — prints events as the
 | `--format yaml` | YAML |
 | `--format csv` | CSV |
 | `--compact` | Single-line JSON (with `--format json`) |
-| `--fields <jq>` | jq filter applied to output — **preferred for AI tools** |
+| `--fields <jq>` | Built-in jq filter applied to output — **preferred for AI tools** |
 
 ```bash
 a2a send "Hello" --fields .task.artifacts         # reply only
@@ -308,7 +308,7 @@ a2a extended-card                     # authenticated extended card
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`) |
 | `--compact` | Single-line JSON |
-| `--fields <jq>` | jq filter applied to output |
+| `--fields <jq>` | Built-in jq filter applied to output |
 | `--transport jsonrpc\|http-json` | Force transport (default: auto from card) |
 | `--tenant <id>` | Tenant ID forwarded to requests |
 | `--bearer-token <token>` | Static token — bypasses OAuth |
@@ -333,6 +333,10 @@ a2a push-config delete <task-id> <config-id>
 ```
 
 ## Schema Reference
+
+Use `a2a schema` to discover protocol shapes before crafting messages or
+choosing `--fields` filters. `--fields` runs the CLI's built-in jq filter, so an
+external `jq` pipe is not required for common extraction.
 
 ```bash
 a2a schema send   # SendMessageRequest JSON Schema
