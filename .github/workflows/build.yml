@@ -88,7 +88,10 @@ jobs:
 
       - name: Install cross
         if: matrix.cross == true && steps.cache-cross.outputs.cache-hit != 'true'
-        run: cargo install cross --locked --version 0.2.5
+        run: |
+          # Avoid Homebrew's rustup-init shim on affected macOS runner images.
+          cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"
+          "$cargo_bin" install cross --locked --version 0.2.5
 
       - name: Build
         env:
@@ -99,10 +102,15 @@ jobs:
             --volume /home/runner/.cargo/registry:/root/.cargo/registry
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
+          # Avoid Homebrew's rustup-init shim on affected macOS runner images.
+          cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"
+          cross_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cross"
+          "$cargo_bin" --version
+
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
+            "$cross_bin" build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
           else
-            cargo build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
+            "$cargo_bin" build --release --target ${{ matrix.target }} -p 'a2a-protocol-cli' --locked
           fi
         shell: bash
 
