@@ -270,6 +270,7 @@ Multi-agent output is always compact NDJSON — one line per agent, tagged with 
 
 ```bash
 a2a --agent <alias1> --agent <alias2> send "Status?"   # specific agents
+a2a --agents <alias1>,<alias2> send "Status?"          # comma-separated shorthand
 a2a --all send "Health check?"                          # all registered agents
 ```
 
@@ -305,6 +306,7 @@ a2a extended-card                     # authenticated extended card
 | Flag | Description |
 |------|-------------|
 | `--agent <alias\|url>` | Target agent — repeatable for parallel calls |
+| `--agents <alias[,alias...]>` | Comma-separated target agents for parallel calls |
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`) |
 | `--compact` | Single-line JSON |

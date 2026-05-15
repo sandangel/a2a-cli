@@ -650,6 +650,63 @@ mod config_isolation {
     }
 }
 
+// ── multi-agent CLI tests ────────────────────────────────────────────
+
+mod multi_agent_cli {
+    use super::*;
+    use std::collections::BTreeSet;
+    use tokio::process::Command;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn send_accepts_comma_separated_agents() {
+        let config_dir = tempfile::tempdir().expect("config tempdir");
+        let work_dir = tempfile::tempdir().expect("work tempdir");
+        let team_a = MockServer::start(MockVariant::V1).await;
+        let team_b = MockServer::start(MockVariant::V1).await;
+
+        for (alias, url) in [("team-a", &team_a.base_url), ("team-b", &team_b.base_url)] {
+            let status = std::process::Command::new(env!("CARGO_BIN_EXE_a2a"))
+                .args(["agent", "add", alias, url])
+                .env("A2A_CONFIG_DIR", config_dir.path())
+                .env_remove("A2A_AGENT_URL")
+                .current_dir(work_dir.path())
+                .status()
+                .expect("run a2a agent add");
+            assert!(status.success(), "a2a agent add {alias} failed: {status}");
+        }
+
+        let output = Command::new(env!("CARGO_BIN_EXE_a2a"))
+            .args([
+                "--agents",
+                "team-a,team-b",
+                "send",
+                "Hello",
+                "--fields",
+                "{agent,state:.task.status.state}",
+            ])
+            .env("A2A_CONFIG_DIR", config_dir.path())
+            .env_remove("A2A_AGENT_URL")
+            .output()
+            .await
+            .expect("run a2a send");
+
+        assert!(
+            output.status.success(),
+            "a2a --agents send failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let mut agents = BTreeSet::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let value = serde_json::from_str::<serde_json::Value>(line).expect("valid NDJSON");
+            assert_eq!(value["state"], "TASK_STATE_COMPLETED");
+            agents.insert(value["agent"].as_str().unwrap().to_string());
+        }
+
+        assert_eq!(agents, BTreeSet::from(["team-a".into(), "team-b".into()]));
+    }
+}
+
 // ── rename regression tests ──────────────────────────────────────────
 
 mod rename_regression {

@@ -105,6 +105,7 @@ relative path under the current project. Defaults:
 | Flag                              | Description                                        |
 | --------------------------------- | -------------------------------------------------- |
 | `--agent <alias\|url>`            | Target agent (repeatable for multi-agent)          |
+| `--agents <alias[,alias...]>`     | Comma-separated target agents for multi-agent      |
 | `--all`                           | All registered agents in parallel                  |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`)                    |
 | `--compact`                       | Single-line JSON                                   |
@@ -140,6 +141,7 @@ a2a send "Hello" --compact
 Multi-agent output is always NDJSON, each line tagged with `agent` and `agent_url`:
 
 ```bash
+a2a --agents <alias1>,<alias2> send "Status?" --fields "{agent,state:.task.status.state}"
 a2a --all send "Status?" --fields "{agent,state:.task.status.state}"
 ```
 

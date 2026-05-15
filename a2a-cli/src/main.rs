@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use a2a_cli::auth::{refresh_if_expired, resolve_oauth_client_id};
 use a2a_cli::cli::{Cli, Command};
-use a2a_cli::client::{resolve_all_targets, resolve_explicit_targets, resolve_target};
+use a2a_cli::client::{
+    explicit_agent_refs, resolve_all_targets, resolve_explicit_targets, resolve_target,
+};
 use a2a_cli::commands::{
     agent::run_agent, auth::run_auth, config::run_config, generate_skills::run_generate_skills,
     schema::run_schema,
@@ -69,8 +71,14 @@ async fn dispatch(cli: Cli) -> a2a_cli::error::Result<()> {
     let format = args.format.clone();
     let command = Arc::new(cli.command);
 
-    // Multi-agent: --all or multiple --agent flags — dispatch in parallel.
-    if args.all || args.agent.len() > 1 {
+    let explicit_agents = if args.all {
+        Vec::new()
+    } else {
+        explicit_agent_refs(args)?
+    };
+
+    // Multi-agent: --all or multiple explicit agent refs — dispatch in parallel.
+    if args.all || explicit_agents.len() > 1 {
         let targets = if args.all {
             resolve_all_targets()?
         } else {

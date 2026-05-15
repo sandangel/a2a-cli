@@ -478,6 +478,7 @@ mod tests {
     fn default_global_args() -> GlobalArgs {
         GlobalArgs {
             agent: vec![],
+            agents: vec![],
             all: false,
             fields: None,
             compact: false,

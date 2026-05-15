@@ -18,7 +18,7 @@ use crate::commands::{
 #[command(
     name = "a2a",
     version = env!("A2A_BUILD_VERSION"),
-    about = "a2a-cli — send messages to A2A agents from AI coding tools\n\nQuick start:\n  a2a agent list                         # see registered agents\n  a2a send \"Summarise the latest PR\"      # send to active agent\n  a2a --agent example send \"Status?\"      # send to named agent\n  a2a --all send \"Health check?\"          # all agents in parallel"
+    about = "a2a-cli — send messages to A2A agents from AI coding tools\n\nQuick start:\n  a2a agent list                         # see registered agents\n  a2a send \"Summarise the latest PR\"      # send to active agent\n  a2a --agent example send \"Status?\"      # send to named agent\n  a2a --agents team-a,team-b send \"Status?\" # specific agents in parallel\n  a2a --all send \"Health check?\"          # all agents in parallel"
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -34,6 +34,16 @@ pub struct GlobalArgs {
     /// Set A2A_AGENT_URL to configure a single default agent via environment.
     #[arg(long = "agent", short = 'a', global = true, action = clap::ArgAction::Append)]
     pub agent: Vec<String>,
+
+    /// Comma-separated agent aliases or URLs for parallel multi-agent dispatch.
+    #[arg(
+        long = "agents",
+        global = true,
+        action = clap::ArgAction::Append,
+        num_args = 1,
+        value_name = "alias[,alias...]"
+    )]
+    pub agents: Vec<String>,
 
     /// Send to ALL registered agents in parallel
     #[arg(long, global = true)]
@@ -200,6 +210,23 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn agents_accepts_comma_separated_values() {
+        let cli = Cli::try_parse_from(["a2a", "--agents", "team-a,team-b", "send", "Hello"])
+            .expect("--agents should accept one comma-separated value");
+
+        assert!(cli.global.agent.is_empty());
+        assert_eq!(cli.global.agents, ["team-a,team-b"]);
+    }
+
+    #[test]
+    fn agents_rejects_space_separated_values() {
+        let err = Cli::try_parse_from(["a2a", "--agents", "team-a", "team-b", "send", "Hello"])
+            .expect_err("--agents must not consume space-separated agent values");
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
     }
 
     #[test]

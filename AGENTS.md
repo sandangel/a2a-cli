@@ -61,7 +61,7 @@ a2a send "What is my name?" --context-id <contextId from above>
 ### Commands
 
 ```bash
-a2a [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--compact] <command> [args]
+a2a [--agent <alias|url>] [--agents <alias[,alias...]>] [--format json|table|yaml|csv] [--fields <jq>] [--compact] <command> [args]
 ```
 
 | Command | Purpose |
@@ -88,6 +88,7 @@ a2a [--agent <alias|url>] [--format json|table|yaml|csv] [--fields <jq>] [--comp
 | Flag | Description |
 |------|-------------|
 | `--agent <alias\|url>` | Target agent (repeatable for parallel multi-agent) |
+| `--agents <alias[,alias...]>` | Comma-separated target agents for parallel multi-agent |
 | `--all` | All registered agents in parallel |
 | `--format json\|table\|yaml\|csv` | Output format (default: `json`; use `table` for human-readable) |
 | `--compact` | Single-line JSON (only with `--format json`) |
@@ -115,6 +116,7 @@ JSON shape before choosing a `--fields` expression.
 Multi-agent output is always NDJSON — one compact JSON line per agent, each tagged with `agent` and `agent_url`:
 
 ```bash
+a2a --agents <alias1>,<alias2> send "Status?" --fields "{agent,state:.task.status.state}"
 a2a --all send "Status?" --fields "{agent,state:.task.status.state}"
 ```
 
@@ -146,7 +148,7 @@ Modules sourced from `gws-cli/` via `#[path]` in `lib.rs`:
 ### Multi-Agent Parallel Execution
 
 Commands resolve targets from (in order of priority):
-1. `--agent <alias|url>` (repeatable)
+1. `--agent <alias|url>` (repeatable) or `--agents <alias[,alias...]>`
 2. `--all` — all registered agents from config
 3. `A2A_AGENT_URL` env var
 4. Config `current_agent`
@@ -269,7 +271,7 @@ CI auto-regenerates on push via `.github/workflows/generate-skills.yml`.
 | Any flag value | `reject_dangerous_chars()` | All control chars + dangerous Unicode |
 
 Validation is applied:
-- `--agent` URL/alias validated in `client::resolve_target` before any network call
+- `--agent` and `--agents` URL/alias values validated in `client::resolve_target` before any network call
 - Message text validated in `main::dispatch` before command dispatch
 
 ## Testing
