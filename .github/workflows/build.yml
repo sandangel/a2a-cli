@@ -78,6 +78,24 @@ jobs:
           cache-workspace-crates: true
           cache-key: ${{ matrix.target }}
 
+      - name: Resolve Rust tools
+        id: rust-tools
+        run: |
+          set -euo pipefail
+          # Some macOS runner images can resolve `cargo` or ~/.cargo/bin/cargo to
+          # Homebrew's rustup-init shim. The cargo binary next to rustc's sysroot
+          # is the actual toolchain cargo installed by the setup action.
+          sysroot="$(rustc --print sysroot)"
+          cargo_bin="${sysroot}/bin/cargo"
+          if [ ! -x "${cargo_bin}" ]; then
+            echo "::error::cargo not found in rustc sysroot: ${cargo_bin}"
+            exit 1
+          fi
+          echo "cargo=${cargo_bin}" >> "${GITHUB_OUTPUT}"
+          rustc --version --verbose
+          "${cargo_bin}" --version
+        shell: bash
+
       - name: Cache cross binary
         if: matrix.cross == true
         id: cache-cross
@@ -89,8 +107,7 @@ jobs:
       - name: Install cross
         if: matrix.cross == true && steps.cache-cross.outputs.cache-hit != 'true'
         run: |
-          # Avoid Homebrew's rustup-init shim on affected macOS runner images.
-          cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"
+          cargo_bin="${{ steps.rust-tools.outputs.cargo }}"
           "$cargo_bin" install cross --locked --version 0.2.5
 
       - name: Build
@@ -102,8 +119,7 @@ jobs:
             --volume /home/runner/.cargo/registry:/root/.cargo/registry
             --volume /home/runner/.cargo/git:/root/.cargo/git
         run: |
-          # Avoid Homebrew's rustup-init shim on affected macOS runner images.
-          cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"
+          cargo_bin="${{ steps.rust-tools.outputs.cargo }}"
           cross_bin="${CARGO_HOME:-$HOME/.cargo}/bin/cross"
           "$cargo_bin" --version
 
