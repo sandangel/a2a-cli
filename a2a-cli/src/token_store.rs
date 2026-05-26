@@ -2,8 +2,8 @@
 //!
 //! Storage priority:
 //!   1. OS keyring (macOS Keychain, Linux Secret Service, Windows Credential Manager)
-//!      — service: "a2a-cli", key: agent URL hostname
-//!   2. AES-256-GCM encrypted file at ~/.config/a2a-cli/tokens/<host>.enc
+//!      — service: "a2a-cli", key: canonical agent URL fingerprint
+//!   2. AES-256-GCM encrypted file at ~/.config/a2a-cli/tokens/<agent-key>.enc
 //!      — used when keyring unavailable or A2A_KEYRING_BACKEND=file
 //!      — AES key stored in keyring under service "a2a-cli", key "encryption-key"
 
@@ -13,7 +13,9 @@ use std::sync::OnceLock;
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use rand::RngCore;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::config::config_dir;
 use crate::error::{A2aCliError, Result};
@@ -21,6 +23,7 @@ use crate::fs_util::atomic_write;
 
 const KEYRING_SERVICE: &str = "a2a-cli";
 const KEYRING_ENC_KEY: &str = "encryption-key";
+const STORAGE_KEY_PREFIX_MAX: usize = 80;
 
 // ── Token type ────────────────────────────────────────────────────────
 
@@ -100,41 +103,61 @@ impl Backend {
 // ── Public API ────────────────────────────────────────────────────────
 
 pub fn load_token(agent_url: &str) -> Result<Option<Token>> {
-    let host = url_host(agent_url)?;
-    let json = match Backend::from_env() {
-        Backend::Keyring => keyring_load(&host).or_else(|e| {
-            eprintln!("warning: keyring unavailable ({e}), falling back to encrypted file");
-            file_load(&host)
-        }),
-        Backend::File => file_load(&host),
-    };
-    match json {
-        Ok(s) => {
-            Ok(Some(serde_json::from_str(&s).map_err(|e| {
-                A2aCliError::Auth(format!("parse token: {e}"))
-            })?))
-        }
-        Err(_) => Ok(None),
+    let key = token_storage_key(agent_url)?;
+    if let Ok(json) = load_token_json(&key) {
+        return parse_token_json(&json).map(Some);
     }
+
+    let legacy_key = legacy_token_key(agent_url)?;
+    if legacy_key != key {
+        return load_and_migrate_legacy_token(&legacy_key, &key);
+    }
+
+    Ok(None)
 }
 
 pub fn save_token(agent_url: &str, token: &Token) -> Result<()> {
-    let host = url_host(agent_url)?;
+    let key = token_storage_key(agent_url)?;
     let json = serde_json::to_string(token)
         .map_err(|e| A2aCliError::Auth(format!("serialize token: {e}")))?;
-    match Backend::from_env() {
-        Backend::Keyring => keyring_save(&host, &json).or_else(|e| {
-            eprintln!("warning: keyring save failed ({e}), using encrypted file instead");
-            file_save(&host, &json)
-        }),
-        Backend::File => file_save(&host, &json),
-    }
+    save_token_json(&key, &json)
 }
 
 pub fn delete_token(agent_url: &str) -> Result<()> {
-    let host = url_host(agent_url)?;
-    let _ = keyring_delete(&host);
-    let path = token_path(&host)?;
+    let key = token_storage_key(agent_url)?;
+    delete_token_key(&key)?;
+
+    let legacy_key = legacy_token_key(agent_url)?;
+    if legacy_key != key {
+        delete_token_key(&legacy_key)?;
+    }
+
+    Ok(())
+}
+
+fn load_token_json(key: &str) -> anyhow::Result<String> {
+    match Backend::from_env() {
+        Backend::Keyring => keyring_load(key).or_else(|e| {
+            eprintln!("warning: keyring unavailable ({e}), falling back to encrypted file");
+            file_load(key)
+        }),
+        Backend::File => file_load(key),
+    }
+}
+
+fn save_token_json(key: &str, json: &str) -> Result<()> {
+    match Backend::from_env() {
+        Backend::Keyring => keyring_save(key, json).or_else(|e| {
+            eprintln!("warning: keyring save failed ({e}), using encrypted file instead");
+            file_save(key, json)
+        }),
+        Backend::File => file_save(key, json),
+    }
+}
+
+fn delete_token_key(key: &str) -> Result<()> {
+    let _ = keyring_delete(key);
+    let path = token_path(key)?;
     if path.exists() {
         std::fs::remove_file(&path)
             .map_err(|e| A2aCliError::Auth(format!("delete token file: {e}")))?;
@@ -142,21 +165,37 @@ pub fn delete_token(agent_url: &str) -> Result<()> {
     Ok(())
 }
 
-// ── Keyring backend ───────────────────────────────────────────────────
-
-fn keyring_load(host: &str) -> anyhow::Result<String> {
-    Ok(keyring::Entry::new(KEYRING_SERVICE, host)?.get_password()?)
+fn parse_token_json(json: &str) -> Result<Token> {
+    serde_json::from_str(json).map_err(|e| A2aCliError::Auth(format!("parse token: {e}")))
 }
 
-fn keyring_save(host: &str, json: &str) -> Result<()> {
-    keyring::Entry::new(KEYRING_SERVICE, host)
+fn load_and_migrate_legacy_token(legacy_key: &str, key: &str) -> Result<Option<Token>> {
+    let Ok(json) = load_token_json(legacy_key) else {
+        return Ok(None);
+    };
+    let token = parse_token_json(&json)?;
+
+    save_token_json(key, &json)?;
+    delete_token_key(legacy_key)?;
+
+    Ok(Some(token))
+}
+
+// ── Keyring backend ───────────────────────────────────────────────────
+
+fn keyring_load(key: &str) -> anyhow::Result<String> {
+    Ok(keyring::Entry::new(KEYRING_SERVICE, key)?.get_password()?)
+}
+
+fn keyring_save(key: &str, json: &str) -> Result<()> {
+    keyring::Entry::new(KEYRING_SERVICE, key)
         .map_err(|e| A2aCliError::Auth(format!("keyring: {e}")))?
         .set_password(json)
         .map_err(|e| A2aCliError::Auth(format!("keyring save: {e}")))
 }
 
-fn keyring_delete(host: &str) -> Result<()> {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, host) {
+fn keyring_delete(key: &str) -> Result<()> {
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, key) {
         let _ = entry.delete_credential();
     }
     Ok(())
@@ -164,18 +203,18 @@ fn keyring_delete(host: &str) -> Result<()> {
 
 // ── File backend ──────────────────────────────────────────────────────
 
-fn token_path(host: &str) -> Result<PathBuf> {
-    Ok(config_dir()?.join("tokens").join(format!("{host}.enc")))
+fn token_path(key: &str) -> Result<PathBuf> {
+    Ok(config_dir()?.join("tokens").join(format!("{key}.enc")))
 }
 
-fn file_load(host: &str) -> anyhow::Result<String> {
-    let ciphertext = std::fs::read(token_path(host)?)?;
+fn file_load(key: &str) -> anyhow::Result<String> {
+    let ciphertext = std::fs::read(token_path(key)?)?;
     let plaintext = aes_decrypt(&ciphertext)?;
     Ok(String::from_utf8(plaintext)?)
 }
 
-fn file_save(host: &str, json: &str) -> Result<()> {
-    let path = token_path(host)?;
+fn file_save(key: &str, json: &str) -> Result<()> {
+    let path = token_path(key)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(A2aCliError::Io)?;
     }
@@ -285,7 +324,64 @@ fn decode_key(b64: &str) -> Option<[u8; 32]> {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn url_host(url: &str) -> Result<String> {
+fn token_storage_key(agent_url: &str) -> Result<String> {
+    let url = canonical_agent_url(agent_url)?;
+    let prefix = safe_host_prefix(&url)?;
+    let digest = Sha256::digest(url.as_str().as_bytes());
+    let fingerprint =
+        base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, digest);
+
+    Ok(format!("{prefix}-{fingerprint}"))
+}
+
+fn canonical_agent_url(agent_url: &str) -> Result<Url> {
+    let mut url = Url::parse(agent_url)
+        .map_err(|e| A2aCliError::Config(format!("invalid agent URL {agent_url:?}: {e}")))?;
+    if url.host_str().is_none() {
+        return Err(A2aCliError::Config(format!(
+            "cannot extract host from URL: {agent_url}"
+        )));
+    }
+
+    url.set_fragment(None);
+
+    let path = url.path().trim_end_matches('/').to_string();
+    url.set_path(&path);
+
+    Ok(url)
+}
+
+fn safe_host_prefix(url: &Url) -> Result<String> {
+    let host = url.host_str().ok_or_else(|| {
+        A2aCliError::Config(format!("cannot extract host from URL: {}", url.as_str()))
+    })?;
+    let host_port = match url.port() {
+        Some(port) => format!("{host}_{port}"),
+        None => host.to_string(),
+    };
+    let safe = host_port
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(STORAGE_KEY_PREFIX_MAX)
+        .collect::<String>();
+
+    if safe.is_empty() {
+        return Err(A2aCliError::Config(format!(
+            "cannot extract host from URL: {}",
+            url.as_str()
+        )));
+    }
+
+    Ok(safe)
+}
+
+fn legacy_token_key(url: &str) -> Result<String> {
     let stripped = url
         .trim_start_matches("https://")
         .trim_start_matches("http://");
@@ -296,4 +392,158 @@ fn url_host(url: &str) -> Result<String> {
         )));
     }
     Ok(host.replace(':', "_"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::{OsStr, OsString};
+
+    struct EnvGuard {
+        name: &'static str,
+        old: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(name: &'static str, value: impl AsRef<OsStr>) -> Self {
+            let old = std::env::var_os(name);
+            // SAFETY: tests using EnvGuard are annotated #[serial_test::serial],
+            // so environment mutation is serialized.
+            unsafe { std::env::set_var(name, value) };
+            Self { name, old }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.old {
+                // SAFETY: see EnvGuard::set.
+                Some(value) => unsafe { std::env::set_var(self.name, value) },
+                // SAFETY: see EnvGuard::set.
+                None => unsafe { std::env::remove_var(self.name) },
+            }
+        }
+    }
+
+    fn token(access_token: &str) -> Token {
+        Token {
+            access_token: access_token.to_string(),
+            refresh_token: None,
+            expires_at: None,
+            token_type: "Bearer".to_string(),
+            scopes: Vec::new(),
+            token_url: None,
+            client_id: None,
+            grant_type: None,
+        }
+    }
+
+    fn save_legacy_token(agent_url: &str, token: &Token) -> String {
+        let key = legacy_token_key(agent_url).unwrap();
+        let json = serde_json::to_string(token).unwrap();
+        save_token_json(&key, &json).unwrap();
+        key
+    }
+
+    #[test]
+    fn storage_key_separates_same_host_different_paths() {
+        let first = token_storage_key("https://example.com/agent-a").unwrap();
+        let second = token_storage_key("https://example.com/agent-b").unwrap();
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("example.com-"));
+        assert!(second.starts_with("example.com-"));
+    }
+
+    #[test]
+    fn storage_key_normalizes_trailing_slash() {
+        let without_slash = token_storage_key("https://example.com/agent").unwrap();
+        let with_slash = token_storage_key("https://example.com/agent/").unwrap();
+
+        assert_eq!(without_slash, with_slash);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn file_backend_separates_tokens_for_same_host_different_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let _config_dir = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _backend = EnvGuard::set("A2A_KEYRING_BACKEND", "file");
+
+        save_token("https://example.com/agent-a", &token("first")).unwrap();
+        save_token("https://example.com/agent-b", &token("second")).unwrap();
+
+        let first = load_token("https://example.com/agent-a").unwrap().unwrap();
+        let second = load_token("https://example.com/agent-b").unwrap().unwrap();
+
+        assert_eq!(first.access_token, "first");
+        assert_eq!(second.access_token, "second");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn root_legacy_token_migrates_to_new_storage_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let _config_dir = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _backend = EnvGuard::set("A2A_KEYRING_BACKEND", "file");
+        let legacy_key = save_legacy_token("https://example.com", &token("legacy"));
+
+        let loaded = load_token("https://example.com").unwrap().unwrap();
+
+        assert_eq!(loaded.access_token, "legacy");
+        assert!(file_load(&token_storage_key("https://example.com").unwrap()).is_ok());
+        assert!(file_load(&legacy_key).is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn path_legacy_token_migrates_to_new_storage_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let _config_dir = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _backend = EnvGuard::set("A2A_KEYRING_BACKEND", "file");
+        let legacy_key = save_legacy_token("https://example.com/agent-a", &token("legacy"));
+
+        let loaded = load_token("https://example.com/agent-a").unwrap().unwrap();
+
+        assert_eq!(loaded.access_token, "legacy");
+        assert!(file_load(&token_storage_key("https://example.com/agent-a").unwrap()).is_ok());
+        assert!(file_load(&legacy_key).is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn same_host_legacy_token_is_consumed_by_first_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let _config_dir = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _backend = EnvGuard::set("A2A_KEYRING_BACKEND", "file");
+        let legacy_key = save_legacy_token("https://example.com/agent-a", &token("legacy"));
+
+        let first = load_token("https://example.com/agent-a").unwrap().unwrap();
+        let second = load_token("https://example.com/agent-b").unwrap();
+
+        assert_eq!(first.access_token, "legacy");
+        assert!(second.is_none());
+        assert!(file_load(&token_storage_key("https://example.com/agent-a").unwrap()).is_ok());
+        assert!(file_load(&token_storage_key("https://example.com/agent-b").unwrap()).is_err());
+        assert!(file_load(&legacy_key).is_err());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn delete_token_removes_legacy_source_to_make_logout_stick() {
+        let dir = tempfile::tempdir().unwrap();
+        let _config_dir = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+        let _backend = EnvGuard::set("A2A_KEYRING_BACKEND", "file");
+        let legacy_key = save_legacy_token("https://example.com/agent-a", &token("legacy"));
+
+        let loaded = load_token("https://example.com/agent-a").unwrap().unwrap();
+        assert_eq!(loaded.access_token, "legacy");
+
+        delete_token("https://example.com/agent-a").unwrap();
+
+        let loaded = load_token("https://example.com/agent-a").unwrap();
+        assert!(loaded.is_none());
+        assert!(file_load(&token_storage_key("https://example.com/agent-a").unwrap()).is_err());
+        assert!(file_load(&legacy_key).is_err());
+    }
 }

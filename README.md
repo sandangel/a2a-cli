@@ -161,8 +161,11 @@ a2a --all send "Status?" --fields "{agent,state:.task.status.state}"
 
 `a2a` supports OAuth, static API tokens, and unauthenticated agents. Each agent
 alias has its own OAuth config. Tokens are stored in the OS keychain under the
-`a2a-cli` service, keyed by hostname. Use `A2A_KEYRING_BACKEND=file` for
-headless / Docker environments.
+`a2a-cli` service, keyed by a canonical agent URL fingerprint so same-host
+agents with different paths do not share credentials. Use
+`A2A_KEYRING_BACKEND=file` for headless / Docker environments.
+Older host-keyed tokens are migrated automatically into the requested agent
+URL's new key, then the old shared key is removed.
 
 `a2a auth login` auto-detects the first supported OAuth flow declared by the
 agent card. Supported auth modes:
