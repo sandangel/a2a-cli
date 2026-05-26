@@ -157,9 +157,10 @@ With multiple targets, commands dispatch in parallel using `FuturesUnordered` an
 
 ### Auth — Per-Agent
 
-Each registered agent alias has its own OAuth config and token:
-- Tokens stored in OS keychain (service: `a2a-cli`) keyed by agent URL hostname:port
-- Fallback encrypted files live under `~/.config/a2a-cli/tokens/<host>.enc`
+Each registered agent alias has its own OAuth config. Tokens are scoped by resolved agent URL:
+- Tokens stored in OS keychain (service: `a2a-cli`) keyed by a canonical agent URL fingerprint, including path
+- Fallback encrypted files live under `~/.config/a2a-cli/tokens/<agent-key>.enc`
+- Legacy host-keyed tokens are migrated into the requested agent URL key on first use, then the old shared key is removed
 - Backend: `A2A_KEYRING_BACKEND=keyring` (default) or `file` (headless/Docker)
 - Supported auth modes: no auth, static bearer/API token, OAuth `authorizationCode` + PKCE, OAuth `deviceCode`, OAuth `clientCredentials`, and refresh-token renewal when the token endpoint issues `refresh_token`
 - Unsupported OAuth grants: `implicit`, password
