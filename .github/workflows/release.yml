@@ -12,7 +12,8 @@
 #   1. Recreate release/candidate from the latest stable release tag
 #   2. Merge main → release/candidate, or cherry-pick specific commits if provided
 #   3. Compute version bump from commits on release/candidate since last stable tag
-#   4. Tag HEAD of release/candidate as v{next}-rc.{N} (auto-increment)
+#   4. Refuse to cut an RC if the computed version is already stable
+#   5. Tag HEAD of release/candidate as v{next}-rc.{N} (auto-increment)
 #
 # Release flow (release_type=release):
 #   Promote the latest RC tag to stable — no new code enters.
@@ -124,6 +125,15 @@ jobs:
             NEXT="${NEXT%-rc.*}"
             RC_COMMIT=$(git rev-list -n1 "$LATEST_RC")
             TAG="v${NEXT}"
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              EXISTING_COMMIT=$(git rev-list -n1 "$TAG")
+              if [ "$EXISTING_COMMIT" = "$RC_COMMIT" ]; then
+                echo "::error::Stable tag ${TAG} already exists at latest RC ${LATEST_RC}; release is already promoted."
+              else
+                echo "::error::Stable tag ${TAG} already exists at ${EXISTING_COMMIT}; refusing to retag latest RC ${LATEST_RC} (${RC_COMMIT})."
+              fi
+              exit 1
+            fi
             git tag "$TAG" "$RC_COMMIT"
           else
             # RC: HEAD is now release/candidate — compute bump from commits
@@ -162,6 +172,16 @@ jobs:
               else
                 NEXT="$LATEST_STABLE_VER"
               fi
+            fi
+
+            if [ -n "$LATEST_STABLE_VER" ] && [ "$NEXT" = "$LATEST_STABLE_VER" ]; then
+              if [ -z "$SUBJECTS" ]; then
+                echo "::error::No commits found since latest stable tag ${LATEST_STABLE}; refusing to cut another ${NEXT} RC."
+              else
+                echo "::error::No releasable commits found since latest stable tag ${LATEST_STABLE}; refusing to cut another ${NEXT} RC."
+              fi
+              echo "::notice::Use a releasable conventional commit (fix, feat, perf, refactor, or breaking change) before cutting a new RC."
+              exit 1
             fi
 
             LATEST_RC=$(git tag -l "v${NEXT}-rc.*" | sort -V | tail -1)
