@@ -328,13 +328,28 @@ async fn do_refresh(
         .send()
         .await
         .map_err(A2aCliError::Http)?;
-    if !resp.status().is_success() {
-        return Err(A2aCliError::Auth(format!(
-            "token refresh returned HTTP {}",
-            resp.status()
-        )));
+    let status = resp.status();
+    let body_text = resp.text().await.map_err(A2aCliError::Http)?;
+    if !status.is_success() {
+        // A concurrent invocation may have already rotated the (single-use)
+        // refresh token and saved a fresh one — Azure AD and many IdPs issue
+        // single-use refresh tokens. If the stored token has since changed and
+        // is now valid, use it instead of failing the whole command.
+        if let Ok(Some(current)) = load_token(agent_url)
+            && current.refresh_token.as_deref() != Some(refresh_token)
+            && !current.is_expired()
+        {
+            return Ok(current);
+        }
+        return Err(refresh_rejection_error(
+            agent_url,
+            refresh_token,
+            status,
+            &body_text,
+        ));
     }
-    let body: Value = resp.json().await.map_err(A2aCliError::Http)?;
+    let body: Value = serde_json::from_str(&body_text)
+        .map_err(|e| A2aCliError::Auth(format!("parse token refresh response: {e}")))?;
     // Preserve the existing refresh_token if the server doesn't issue a new one.
     let mut token = token_from_json(&body, scopes, Some(token_url), Some(client_id), grant_type)?;
     if token.refresh_token.is_none() {
@@ -342,6 +357,53 @@ async fn do_refresh(
     }
     save_token(agent_url, &token)?;
     Ok(token)
+}
+
+/// Build an actionable error for a rejected token refresh.
+///
+/// OAuth servers signal an expired/revoked/already-used refresh token with
+/// `error: "invalid_grant"`. Such a token is permanently unusable, so we clear
+/// it from the store — otherwise every subsequent command keeps failing with
+/// the same 400 instead of prompting a fresh login. The stored token is only
+/// deleted when it still holds the refresh token we just tried, so a concurrent
+/// refresh that already rotated it is never clobbered.
+fn refresh_rejection_error(
+    agent_url: &str,
+    used_refresh_token: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+) -> A2aCliError {
+    let parsed: Option<Value> = serde_json::from_str(body).ok();
+    let oauth_error = parsed
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|v| v.as_str());
+    let description = parsed
+        .as_ref()
+        .and_then(|v| v.get("error_description"))
+        .and_then(|v| v.as_str());
+
+    if oauth_error == Some("invalid_grant") {
+        let still_stale = matches!(
+            load_token(agent_url),
+            Ok(Some(t)) if t.refresh_token.as_deref() == Some(used_refresh_token)
+        );
+        if still_stale {
+            let _ = delete_token(agent_url);
+        }
+        let detail = description.unwrap_or("refresh token is expired or no longer valid");
+        return A2aCliError::Auth(format!(
+            "session expired ({detail}); run `a2a auth login` to re-authenticate"
+        ));
+    }
+
+    let detail = match (oauth_error, description) {
+        (Some(e), Some(d)) => format!("{e}: {d}"),
+        (Some(e), None) => e.to_string(),
+        _ if !body.trim().is_empty() => body.trim().to_string(),
+        _ => "no response body".to_string(),
+    };
+    A2aCliError::Auth(format!("token refresh failed (HTTP {status}): {detail}"))
 }
 
 pub struct TokenStatus {
@@ -1645,11 +1707,15 @@ mod refresh_tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn expired_token_server_error_returns_auth_error() {
+    async fn expired_token_invalid_grant_clears_token_and_prompts_relogin() {
         let dir = tempfile::tempdir().unwrap();
         let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
 
-        let (server_url, server) = spawn_token_server(400, r#"{"error":"invalid_grant"}"#).await;
+        let (server_url, server) = spawn_token_server(
+            400,
+            r#"{"error":"invalid_grant","error_description":"refresh token does not exist"}"#,
+        )
+        .await;
 
         save_token(
             "http://refresh-fail.test/",
@@ -1660,7 +1726,54 @@ mod refresh_tests {
         let err = refresh_if_expired("http://refresh-fail.test/", "client-id")
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("token refresh returned HTTP"));
+        let msg = err.to_string();
+        assert!(msg.contains("session expired"), "got: {msg}");
+        assert!(msg.contains("refresh token does not exist"), "got: {msg}");
+        assert!(msg.contains("a2a auth login"), "got: {msg}");
+
+        // The stale token must be cleared so the next run prompts a fresh login
+        // instead of looping on the same 400.
+        assert!(
+            load_token("http://refresh-fail.test/").unwrap().is_none(),
+            "invalid_grant must clear the stale stored token"
+        );
+
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn expired_token_non_invalid_grant_error_includes_server_detail() {
+        let dir = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+
+        let (server_url, server) = spawn_token_server(
+            400,
+            r#"{"error":"invalid_client","error_description":"unknown client"}"#,
+        )
+        .await;
+
+        save_token(
+            "http://refresh-badclient.test/",
+            &expired_token(Some("some-refresh"), Some(&server_url)),
+        )
+        .unwrap();
+
+        let err = refresh_if_expired("http://refresh-badclient.test/", "client-id")
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("invalid_client"), "got: {msg}");
+        assert!(msg.contains("unknown client"), "got: {msg}");
+
+        // A non-invalid_grant failure (e.g. transient/config) must NOT clear the
+        // token — the refresh token may still be valid.
+        assert!(
+            load_token("http://refresh-badclient.test/")
+                .unwrap()
+                .is_some(),
+            "non-invalid_grant error must preserve the stored token"
+        );
 
         let _ = server.await;
     }
@@ -1730,6 +1843,49 @@ mod refresh_tests {
             Some("rotated-refresh"),
             "rotated refresh_token from server must be used"
         );
+
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn do_refresh_recovers_token_rotated_by_concurrent_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let _env = EnvGuard::set("A2A_CONFIG_DIR", dir.path());
+
+        // Server rejects our (already-consumed) refresh token.
+        let (server_url, server) = spawn_token_server(
+            400,
+            r#"{"error":"invalid_grant","error_description":"refresh token does not exist"}"#,
+        )
+        .await;
+
+        // Simulate a parallel invocation having already rotated + saved a fresh,
+        // valid token under the same agent URL.
+        let agent_url = "http://concurrent-refresh.test/";
+        let mut rotated = valid_token();
+        rotated.refresh_token = Some("rotated-by-winner".to_string());
+        rotated.token_url = Some(server_url.clone());
+        save_token(agent_url, &rotated).unwrap();
+
+        // do_refresh uses the *stale* refresh token and gets a 400, but must
+        // recover the fresh token the winner already stored.
+        let token = do_refresh(
+            &server_url,
+            "client-id",
+            "stale-consumed-refresh",
+            &["openid".to_string()],
+            agent_url,
+            Some(TokenGrantType::AuthorizationCode),
+        )
+        .await
+        .expect("must recover the concurrently-rotated token");
+
+        assert_eq!(token.access_token, "valid-access");
+        assert_eq!(token.refresh_token.as_deref(), Some("rotated-by-winner"));
+
+        // The recovered token must remain stored (not cleared).
+        assert!(load_token(agent_url).unwrap().is_some());
 
         let _ = server.await;
     }
