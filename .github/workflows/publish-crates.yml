@@ -31,7 +31,7 @@ jobs:
           cache-bin: false
           rustflags: ""
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
 
       - name: Package crates
         run: uv run inv package-crates --version="${{ inputs.version }}"

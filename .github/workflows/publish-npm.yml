@@ -34,7 +34,7 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@sandangel"
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
 
       - uses: actions/download-artifact@v8
         with:
