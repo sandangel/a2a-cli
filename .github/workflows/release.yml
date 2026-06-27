@@ -68,7 +68,7 @@ jobs:
       publish_crates: ${{ steps.meta.outputs.publish_crates }}
       create_release: ${{ steps.meta.outputs.create_release }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -294,7 +294,7 @@ jobs:
     needs: [plan, build, publish-crates]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.plan.outputs.tag }}
           fetch-depth: 0
