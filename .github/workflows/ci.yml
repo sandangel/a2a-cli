@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: rustfmt, clippy
           # Do not restore/save ~/.cargo/bin. A poisoned rust-cache entry can
